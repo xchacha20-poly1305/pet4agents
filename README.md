@@ -1,6 +1,6 @@
 # claude-code-pet
 
-A Linux desktop pet plugin for [Claude Code](https://claude.com/claude-code), reusing the Codex pet format. The pet sits on top of your desktop, runs while Claude works, jumps when work completes, waves when permission is requested, and can be dragged around.
+A Linux desktop pet plugin for [Claude Code](https://claude.com/claude-code) and Codex CLI, reusing the Codex pet format. The pet sits on top of your desktop, runs while the agent works, jumps when work completes, waves when permission is requested, and can be dragged around.
 
 ## Requirements
 
@@ -11,7 +11,7 @@ A Linux desktop pet plugin for [Claude Code](https://claude.com/claude-code), re
 
 PySide6 is auto-installed into a private venv at `~/.local/share/claude-code-pet/venv/` on first hook fire (~60 MB download, one-time).
 
-## Install
+## Install for Claude Code
 
 If you didn't install [my plugin marketplace](https://codeberg.org/xchacha20-poly1305/cc-plugin), install it first.
 
@@ -25,9 +25,13 @@ Then you can install it:
 claude plugin install pet4claude@anrong-plugins
 ```
 
+## Codex CLI plugin files
+
+As same as Claude Code, just replace `claude` with `codex`.
+
 ## Behavior
 
-| Claude event           | Pet animation                |
+| Agent event            | Pet animation                |
 | ---------------------- | ---------------------------- |
 | `SessionStart`         | wave once → idle             |
 | `UserPromptSubmit`     | running (loop)               |
@@ -63,10 +67,10 @@ claude plugin install pet4claude@anrong-plugins
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `pet_id` | (auto-discover) | Which pet folder under `~/.codex/pets/` (or this plugin's `pets/`) to load. |
-| `stay_even_no_session` | `false` | When `false`, the daemon exits shortly after the last Claude session ends. Set to `true` to keep the daemon running until you call `/pet-stop`. The "session ends" check covers both the clean `SessionEnd` hook *and* the case where Claude Code itself crashes / is `SIGKILL`'d / has its terminal closed (the daemon polls the Claude PID every 5s as a safety net). |
+| `stay_even_no_session` | `false` | When `false`, the daemon exits shortly after the last agent session ends. Set to `true` to keep the daemon running until you call `/pet-stop` or ask Codex to stop the pet. The "session ends" check covers both the clean `SessionEnd` hook *and* the case where Claude Code / Codex itself crashes / is `SIGKILL`'d / has its terminal closed (the daemon polls the agent PID every 5s as a safety net). |
 | `animation_durations` | `{}` | Per-animation per-frame duration overrides in **milliseconds**. Each value is a list, one entry per frame. Length **must** match the default frame count for that animation (the spritesheet row has a fixed number of cells); mismatched, malformed, or unknown entries are silently ignored. Animation names: `idle`, `running-right`, `running-left`, `waving`, `jumping`, `failed`, `waiting`, `running`, `review` — frame counts: see `scripts/config.py:ANIMATIONS`. JSON is the only entry point; there is no slash command for this. |
 
-Override the pet via env var: `CLAUDE_PET_ID=<id>`.
+Override the pet via env var: `CLAUDE_PET_ID=<id>` or `CODEX_PET_ID=<id>`.
 
 ## Files / directories used
 
@@ -83,7 +87,7 @@ rm -rf ~/.local/share/claude-code-pet ~/.config/claude-code-pet ~/.local/state/c
 rm -f "${XDG_RUNTIME_DIR:-/tmp}/claude-code-pet.sock"
 ```
 
-Then disable the plugin in Claude Code.
+Then disable the plugin in Claude Code or Codex.
 
 # LICENSE
 

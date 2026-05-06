@@ -1,0 +1,34 @@
+{
+  "name": "pet4claude",
+  "version": "0.2.1",
+  "description": "A Linux desktop pet for Claude Code and Codex CLI sessions.",
+  "author": {
+    "name": "anrong"
+  },
+  "homepage": "https://codeberg.org/xchacha20-poly1305/pet4claude",
+  "repository": "https://codeberg.org/xchacha20-poly1305/pet4claude",
+  "license": "MIT",
+  "keywords": [
+    "codex",
+    "claude",
+    "desktop-pet",
+    "pet",
+    "hooks",
+    "pyside6"
+  ],
+  "hooks": "./hooks.json",
+  "interface": {
+    "displayName": "Pet4Claude",
+    "shortDescription": "Show a desktop pet while Codex or Claude works",
+    "longDescription": "Pet4Claude runs a lightweight Linux desktop pet from Codex-format spritesheets and drives its animations from coding-agent lifecycle hooks.",
+    "developerName": "anrong",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://codeberg.org/xchacha20-poly1305/pet4claude",
+    "brandColor": "#D97757"
+  }
+}
