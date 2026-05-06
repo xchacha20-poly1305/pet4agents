@@ -16,7 +16,7 @@ The plugin is intentionally split so Claude Code's hook process never blocks on 
 
 2. **`scripts/pet_event.py`** (hook relay) — Runs in the hook process. Ensures the managed venv exists and re-execs itself under it (`ensure_venv_and_reexec`), then sends one JSON line over a Unix socket to the daemon. On `SessionStart` only, if the socket isn't there, it spawns the daemon detached and retries for ~2s. Every error path is swallowed and logged; hooks must never block Claude.
 
-3. **`scripts/pet_daemon.py`** (long-running Qt process) — Frameless transparent always-on-top `QWidget`, renders frames from the atlas, listens on `QLocalServer`. Singleton-enforced via pidfile + socket probe. Survives `SessionEnd` (hooks only ask the daemon to quit on `/pet-stop`).
+3. **`scripts/pet_daemon.py`** (long-running Qt process) — Frameless transparent always-on-top `QWidget`, renders frames from the atlas, listens on `QLocalServer`. Singleton-enforced via pidfile + socket probe. Tracks live sessions as `session_id -> Claude Code PID` and, by default, schedules its own quit shortly after the last session drains (whether via a clean `SessionEnd` hook or via the 5s liveness reaper noticing the Claude Code PID is gone — covers crashes / `SIGKILL` / closed terminal). Set `stay_even_no_session: true` in `~/.config/claude-code-pet/config.json` for the legacy "always-on" behavior; `/pet-stop` still works either way.
 
 `scripts/config.py` is shared by both processes — paths, atlas geometry, the animation table, and the event-to-animation map all live there. **Change behavior there, not in the daemon.**
 

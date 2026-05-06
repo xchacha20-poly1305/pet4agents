@@ -75,12 +75,7 @@ def _is_valid_pet_dir(d: Path) -> bool:
 
 def discover_pet() -> tuple[Path, dict] | None:
     """Return (pet_dir, metadata) or None."""
-    cfg_pet = ""
-    if config.CONFIG_PATH.exists():
-        try:
-            cfg_pet = json.loads(config.CONFIG_PATH.read_text("utf-8")).get("pet_id", "")
-        except Exception:
-            cfg_pet = ""
+    cfg_pet = config.load_user_config().get("pet_id", "") or ""
 
     candidates: list[Path] = []
     env_pet = os.environ.get("CLAUDE_PET_ID", "").strip()
@@ -177,6 +172,15 @@ class PetWindow(QWidget):
         self.oneshot_state: str | None = None
         self.drag_state: str | None = None
 
+        # Tracks live Claude sessions: session_id -> Claude Code parent PID.
+        # Populated on event arrival, drained on SessionEnd or when the
+        # parent PID is observed dead (`_reap_dead_sessions`). A value of 0
+        # means we couldn't determine the PID and the session is exempt
+        # from the liveness check (only an explicit SessionEnd will drain it).
+        # When this dict drains and `stay_even_no_session` is False (the
+        # default), the daemon schedules its own quit — see `_track_session`.
+        self.active_sessions: dict[str, int] = {}
+
         self.anim = AnimationController()
 
         self._dragging = False
@@ -236,6 +240,15 @@ class PetWindow(QWidget):
         self._long_press_timer.setSingleShot(True)
         self._long_press_timer.setInterval(LONG_PRESS_MS)
         self._long_press_timer.timeout.connect(self._on_long_press_fire)
+
+        # Periodic liveness reaper for sessions whose Claude Code parent
+        # disappeared without firing SessionEnd (crash, SIGKILL, terminal
+        # killed). 5s feels responsive without being expensive (one os.kill
+        # syscall per tracked session).
+        self._session_liveness_timer = QTimer(self)
+        self._session_liveness_timer.setInterval(self._SESSION_LIVENESS_INTERVAL_MS)
+        self._session_liveness_timer.timeout.connect(self._reap_dead_sessions)
+        self._session_liveness_timer.start()
 
     def _init_window(self) -> None:
         self.setWindowFlags(
@@ -299,7 +312,12 @@ class PetWindow(QWidget):
             else:
                 break
 
-    def apply_event(self, event_name: str) -> None:
+    def apply_event(self, event_name: str, session_id: str = "", parent_pid: int = 0) -> None:
+        # Session lifecycle bookkeeping runs first so the
+        # `stay_even_no_session` check can see an up-to-date set even for
+        # events that don't appear in any of the animation tables.
+        self._track_session(event_name, session_id, parent_pid)
+
         # Ignore events that don't appear in any of the three tables. This
         # also covers internal/unknown messages.
         if (event_name not in config.INTERVAL_CLOSE
@@ -328,6 +346,119 @@ class PetWindow(QWidget):
         self.timer.stop()
         self._render_current_frame()
         self.timer.start(self.anim.current_duration_ms())
+
+    # ----- session lifecycle (drives `stay_even_no_session`) -----
+
+    # Delay before checking whether to quit, in milliseconds. Long enough for
+    # the SessionEnd `waving` oneshot (~700ms) to play through, plus a small
+    # cushion so a fresh SessionStart racing the SessionEnd has time to land.
+    _NO_SESSION_QUIT_DELAY_MS = 900
+
+    # How often to poll Claude Code parent PIDs for liveness. Cheap (one
+    # signal-zero syscall per session) so we keep it fairly snappy.
+    _SESSION_LIVENESS_INTERVAL_MS = 5000
+
+    def _track_session(
+        self, event_name: str, session_id: str, parent_pid: int
+    ) -> None:
+        """Maintain `self.active_sessions` from incoming events.
+
+        - SessionEnd drains the entry (and triggers the no-session quit check).
+        - Any other event with a session_id late-binds the session into the
+          dict if we haven't seen it yet (covers the case where the daemon
+          was restarted mid-session and SessionStart was missed). PID is
+          updated whenever we learn a better value than what we had stored.
+
+        When all sessions drain and `stay_even_no_session` is False, schedule
+        a deferred quit so the goodbye wave has time to play."""
+        if event_name == "SessionEnd":
+            if session_id and self.active_sessions.pop(session_id, None) is not None:
+                _log(
+                    f"session ended: {session_id} "
+                    f"(active={len(self.active_sessions)})"
+                )
+            self._maybe_schedule_quit()
+            return
+
+        if not session_id:
+            return
+        prev = self.active_sessions.get(session_id)
+        if prev is None:
+            self.active_sessions[session_id] = parent_pid
+            label = "registered" if event_name == "SessionStart" else "learned mid-stream"
+            _log(
+                f"session {label}: {session_id} pid={parent_pid or '?'} "
+                f"(active={len(self.active_sessions)})"
+            )
+        elif parent_pid > 0 and prev <= 0:
+            # Late binding: we knew the session but not its PID; learn now.
+            self.active_sessions[session_id] = parent_pid
+            _log(f"session {session_id} pid learned: {parent_pid}")
+
+    def _should_quit_now(self) -> bool:
+        """Common predicate for both the deferred-quit scheduler and the
+        deferred-quit fire path. Centralizes the 'no sessions + no opt-in'
+        check so the two callers can't drift."""
+        if self.active_sessions:
+            return False
+        if config.load_user_config().get("stay_even_no_session"):
+            return False
+        return True
+
+    def _maybe_schedule_quit(self) -> None:
+        """Called whenever sessions transition toward empty. Schedules a
+        deferred quit if appropriate; the deferred check re-validates so
+        a session arriving during the delay window cancels the quit."""
+        if not self._should_quit_now():
+            return
+        _log(
+            "no active sessions remaining; scheduling daemon quit "
+            f"in {self._NO_SESSION_QUIT_DELAY_MS}ms"
+        )
+        QTimer.singleShot(self._NO_SESSION_QUIT_DELAY_MS, self._quit_if_no_sessions)
+
+    def _quit_if_no_sessions(self) -> None:
+        """Deferred quit fire: a SessionStart that arrived during the delay
+        window cancels the quit; a config flip to `stay_even_no_session=true`
+        also cancels it."""
+        if not self._should_quit_now():
+            return
+        _log("no active sessions; quitting daemon")
+        self.quit_requested.emit()
+
+    def _reap_dead_sessions(self) -> None:
+        """Drop sessions whose Claude Code parent PID is no longer alive.
+
+        This is the safety net for sessions that ended uncleanly (crash,
+        SIGKILL, terminal closed) and never delivered a SessionEnd hook.
+        Sessions registered without a usable PID (value <= 0) are skipped —
+        they can only be drained by an explicit SessionEnd."""
+        if not self.active_sessions:
+            return
+        dead: list[tuple[str, int]] = []
+        for sid, pid in self.active_sessions.items():
+            if pid <= 0:
+                continue
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                dead.append((sid, pid))
+            except PermissionError:
+                # PID exists but isn't ours to signal. Treat as alive — we'd
+                # rather leave the daemon running than kill it on a /proc
+                # permissions glitch.
+                pass
+            except OSError:
+                pass
+        if not dead:
+            return
+        for sid, pid in dead:
+            self.active_sessions.pop(sid, None)
+            _log(
+                f"session {sid} parent (pid={pid}) gone; reaped "
+                f"(active={len(self.active_sessions)})"
+            )
+        self._maybe_schedule_quit()
 
     # ----- ticking -----
 
@@ -652,7 +783,15 @@ class IpcServer:
             return
         kind = msg.get("kind")
         if kind == "event":
-            self.win.apply_event(msg.get("event", ""))
+            try:
+                parent_pid = int(msg.get("parent_pid") or 0)
+            except (TypeError, ValueError):
+                parent_pid = 0
+            self.win.apply_event(
+                msg.get("event", ""),
+                msg.get("session_id", ""),
+                parent_pid,
+            )
         elif kind == "quit":
             self.win.quit_requested.emit()
         elif kind == "reload":

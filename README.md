@@ -36,7 +36,7 @@ claude plugin install pet4claude@anrong-plugins
 | `Notification`         | review once                  |
 | `PermissionRequest`    | wave once                    |
 | `PostToolUseFailure`   | failed once                  |
-| `SessionEnd`           | wave once (daemon stays up)  |
+| `SessionEnd`           | wave once → quit if no other sessions remain (override with `stay_even_no_session`) |
 | Drag                   | running-right / running-left / jumping based on motion |
 
 ## Slash commands
@@ -50,11 +50,17 @@ claude plugin install pet4claude@anrong-plugins
 
 ```json
 {
-  "pet_id": "claude-muse"
+  "pet_id": "claude-muse",
+  "stay_even_no_session": false
 }
 ```
 
-Override with env var: `CLAUDE_PET_ID=<id>`.
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `pet_id` | (auto-discover) | Which pet folder under `~/.codex/pets/` (or this plugin's `pets/`) to load. |
+| `stay_even_no_session` | `false` | When `false`, the daemon exits shortly after the last Claude session ends. Set to `true` to keep the daemon running until you call `/pet-stop`. The "session ends" check covers both the clean `SessionEnd` hook *and* the case where Claude Code itself crashes / is `SIGKILL`'d / has its terminal closed (the daemon polls the Claude PID every 5s as a safety net). |
+
+Override the pet via env var: `CLAUDE_PET_ID=<id>`.
 
 ## Files / directories used
 

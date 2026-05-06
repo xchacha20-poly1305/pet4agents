@@ -203,6 +203,89 @@ def send_to_daemon(payload: dict, timeout: float = 1.0) -> bool:
         return False
 
 
+# ------------------------- Claude PID discovery -------------------------
+#
+# When a session ends "cleanly" Claude Code fires the SessionEnd hook, which
+# tells the daemon to drain the session. But if Claude Code crashes / is
+# SIGKILL'd / the terminal is closed, no SessionEnd ever lands. To recover,
+# we ship the Claude Code PID along with each event so the daemon can poll
+# liveness and treat a dead PID as an implicit SessionEnd.
+#
+# `os.getppid()` alone isn't always Claude — Claude may execute hooks via a
+# shell wrapper that exits as soon as the hook returns, which would make the
+# daemon think the session died immediately. So we walk up the /proc tree
+# until we find an ancestor whose comm/cmdline mentions "claude", and use
+# that PID. Falls back to getppid() when /proc isn't available or no
+# matching ancestor is found.
+
+def _is_claude_pid(pid: int) -> bool:
+    """True iff /proc/<pid> looks like the Claude Code binary itself.
+
+    Matches on `comm` (kernel-truncated executable basename) and on the
+    basename of argv[0]. Both are literally 'claude' for Claude Code, which
+    keeps us from matching shell wrappers whose cmdline merely references
+    paths under `~/.claude/` (e.g. `bash -c 'source ~/.claude/.../snapshot'`).
+    """
+    target = "claude"
+    try:
+        if Path(f"/proc/{pid}/comm").read_text("utf-8").strip().lower() == target:
+            return True
+    except OSError:
+        pass
+    try:
+        cmdline = Path(f"/proc/{pid}/cmdline").read_bytes()
+        argv0 = cmdline.split(b"\x00", 1)[0]
+        if argv0:
+            name = Path(argv0.decode("utf-8", "replace")).name.lower()
+            # Strip a trailing .exe defensively for unusual wrapper builds.
+            if name == target or name == target + ".exe":
+                return True
+    except OSError:
+        pass
+    return False
+
+
+def _read_ppid(pid: int) -> int:
+    """Read PPid from /proc/<pid>/status. Returns 0 on error."""
+    try:
+        with open(f"/proc/{pid}/status", "r", encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("PPid:"):
+                    return int(line.split()[1])
+    except (OSError, ValueError):
+        pass
+    return 0
+
+
+def find_claude_pid() -> int:
+    """Walk up the process tree to find the Claude Code process.
+
+    Returns the first ancestor whose comm or argv[0] basename is `claude`.
+    Falls back to `os.getppid()` if no such ancestor is found, or if /proc
+    isn't available (non-Linux / containers without procfs)."""
+    fallback = os.getppid()
+    try:
+        if not Path("/proc").exists():
+            return fallback
+        pid = fallback
+        seen: set[int] = set()
+        # Cap iterations to defend against hostile /proc edits — process trees
+        # in practice are well under 64 deep.
+        for _ in range(64):
+            if pid <= 1 or pid in seen:
+                break
+            seen.add(pid)
+            if _is_claude_pid(pid):
+                return pid
+            ppid = _read_ppid(pid)
+            if ppid <= 0:
+                break
+            pid = ppid
+    except Exception:
+        pass
+    return fallback
+
+
 def spawn_daemon() -> None:
     """Detached spawn of pet_daemon.py under the managed venv."""
     daemon_script = Path(__file__).resolve().parent / "pet_daemon.py"
@@ -259,6 +342,9 @@ def cmd_event(event_name: str) -> None:
         "event": event_name,
         "session_id": hook_data.get("session_id", ""),
         "cwd": hook_data.get("cwd", os.getcwd()),
+        # Daemon polls this PID for liveness so it can drain the session even
+        # if SessionEnd never fires (Claude crash / SIGKILL / terminal closed).
+        "parent_pid": find_claude_pid(),
     }
 
     ok = send_to_daemon(payload)

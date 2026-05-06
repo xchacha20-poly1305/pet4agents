@@ -1,6 +1,7 @@
 """Shared constants for claude-code-pet."""
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -116,3 +117,32 @@ def ensure_dirs() -> None:
     """Create the writable dirs we use. Safe to call repeatedly."""
     for d in (CONFIG_DIR, DATA_DIR, STATE_DIR):
         d.mkdir(parents=True, exist_ok=True)
+
+
+# --- User config (`~/.config/claude-code-pet/config.json`) ---
+#
+# The on-disk shape is a flat JSON object. Unknown keys are preserved on write
+# (see `pet_event.py:cmd_set_pet`). Defaults below are merged at read-time so
+# missing keys never crash the daemon.
+DEFAULT_USER_CONFIG: dict = {
+    # Empty string = use auto-discovery order (env -> codex pets -> plugin pets).
+    "pet_id": "",
+    # When False (default) the daemon exits after the last Claude session ends.
+    # When True the daemon keeps running until `/pet-stop` (legacy behavior).
+    "stay_even_no_session": False,
+}
+
+
+def load_user_config() -> dict:
+    """Read the user config, returning a dict that always contains the keys in
+    `DEFAULT_USER_CONFIG`. Never raises — corrupt/missing files fall back to
+    defaults so the daemon stays robust."""
+    cfg = dict(DEFAULT_USER_CONFIG)
+    if CONFIG_PATH.exists():
+        try:
+            data = json.loads(CONFIG_PATH.read_text("utf-8"))
+            if isinstance(data, dict):
+                cfg.update(data)
+        except Exception:
+            pass
+    return cfg
