@@ -1,0 +1,9 @@
+{
+  "name": "claude-code-pet",
+  "version": "0.1.0",
+  "description": "Linux desktop pet for Claude Code, compatible with Codex pet format.",
+  "author": {
+    "name": "anrong"
+  },
+  "keywords": ["pet", "desktop", "linux", "codex"]
+}

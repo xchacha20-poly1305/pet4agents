@@ -1,0 +1,7 @@
+.codex
+.claude
+
+.DS_Store
+.idea
+
+__pycache__
