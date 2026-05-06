@@ -130,6 +130,14 @@ DEFAULT_USER_CONFIG: dict = {
     # When False (default) the daemon exits after the last Claude session ends.
     # When True the daemon keeps running until `/pet-stop` (legacy behavior).
     "stay_even_no_session": False,
+    # Per-animation per-frame duration overrides (ms). Shape:
+    #   { "<animation-name>": [d0, d1, ...], ... }
+    # Each list, if provided, MUST have the same length as the default
+    # durations for that animation (one entry per frame in the row). Unknown
+    # animation names and malformed entries are silently ignored so a typo in
+    # config.json never bricks the daemon. JSON is the only supported entry
+    # point — there is no CLI/slash-command for tweaking these.
+    "animation_durations": {},
 }
 
 
@@ -146,3 +154,47 @@ def load_user_config() -> dict:
         except Exception:
             pass
     return cfg
+
+
+def _apply_animation_duration_overrides() -> None:
+    """Mutate `ANIMATIONS` in-place with any per-animation duration overrides
+    found in the user config. Called once at import time so every consumer of
+    `config.ANIMATIONS` (notably `pet_daemon.py`) sees the user's values
+    without needing its own merge step.
+
+    Validation rules (all failures are silent):
+      - override map must be a dict
+      - animation name must already exist in `ANIMATIONS`
+      - value must be a list/tuple of positive numbers
+      - length must match the default durations length (frame count is fixed
+        by the spritesheet row, so changing it would desync rendering)
+    """
+    try:
+        cfg = load_user_config()
+    except Exception:
+        return
+    overrides = cfg.get("animation_durations")
+    if not isinstance(overrides, dict):
+        return
+    for name, durs in overrides.items():
+        spec = ANIMATIONS.get(name)
+        if not spec:
+            continue
+        if not isinstance(durs, (list, tuple)):
+            continue
+        default = spec["durations"]
+        if len(durs) != len(default):
+            continue
+        cleaned: list[int] = []
+        ok = True
+        for d in durs:
+            if isinstance(d, bool) or not isinstance(d, (int, float)) or d <= 0:
+                ok = False
+                break
+            cleaned.append(int(d))
+        if not ok:
+            continue
+        spec["durations"] = cleaned
+
+
+_apply_animation_duration_overrides()

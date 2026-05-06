@@ -51,7 +51,12 @@ claude plugin install pet4claude@anrong-plugins
 ```json
 {
   "pet_id": "claude-muse",
-  "stay_even_no_session": false
+  "stay_even_no_session": false,
+  "animation_durations": {
+    "idle":          [280, 110, 110, 140, 140, 320],
+    "running-right": [120, 120, 120, 120, 120, 120, 120, 220],
+    "waving":        [140, 140, 140, 280]
+  }
 }
 ```
 
@@ -59,6 +64,7 @@ claude plugin install pet4claude@anrong-plugins
 | --- | --- | --- |
 | `pet_id` | (auto-discover) | Which pet folder under `~/.codex/pets/` (or this plugin's `pets/`) to load. |
 | `stay_even_no_session` | `false` | When `false`, the daemon exits shortly after the last Claude session ends. Set to `true` to keep the daemon running until you call `/pet-stop`. The "session ends" check covers both the clean `SessionEnd` hook *and* the case where Claude Code itself crashes / is `SIGKILL`'d / has its terminal closed (the daemon polls the Claude PID every 5s as a safety net). |
+| `animation_durations` | `{}` | Per-animation per-frame duration overrides in **milliseconds**. Each value is a list, one entry per frame. Length **must** match the default frame count for that animation (the spritesheet row has a fixed number of cells); mismatched, malformed, or unknown entries are silently ignored. Animation names: `idle`, `running-right`, `running-left`, `waving`, `jumping`, `failed`, `waiting`, `running`, `review` — frame counts: see `scripts/config.py:ANIMATIONS`. JSON is the only entry point; there is no slash command for this. |
 
 Override the pet via env var: `CLAUDE_PET_ID=<id>`.
 

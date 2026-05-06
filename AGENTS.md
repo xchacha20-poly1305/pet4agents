@@ -86,3 +86,7 @@ When changing drag logic, set `CCPET_DEBUG=1` in the daemon's environment to get
 2. If it's triggered by a Claude event, register it in one or more of `config.INTERVAL_OPEN` (looping interval), `config.INTERVAL_CLOSE` (which openers it pops), and `config.ONESHOTS` (single-pass flash). A single event can appear in all three.
 3. If it's a new Claude hook, also add it to `hooks/hooks.json`.
 4. The daemon's state machine picks it up automatically — no daemon code changes needed unless you're introducing a new priority layer.
+
+## Tuning animation durations
+
+Per-frame durations on every animation in `config.ANIMATIONS` can be overridden from `~/.config/claude-code-pet/config.json` via the `animation_durations` key (see README). `config._apply_animation_duration_overrides()` runs at import time and mutates `ANIMATIONS` in-place, so any consumer that reads `config.ANIMATIONS` (the daemon does) automatically sees the user values — **don't add a second merge path**. JSON is the only supported entry point; do not add CLI flags or slash commands for this. Validation is intentionally strict-but-silent: list length must equal the default frame count, all entries must be positive numbers, unknown animation names are ignored.
