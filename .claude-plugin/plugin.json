@@ -1,6 +1,6 @@
 {
-  "name": "claude-code-pet",
-  "version": "0.1.0",
+  "name": "pet4claude",
+  "version": "0.2.0",
   "description": "Linux desktop pet for Claude Code, compatible with Codex pet format.",
   "author": {
     "name": "anrong"
