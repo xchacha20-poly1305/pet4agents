@@ -78,7 +78,10 @@ def discover_pet() -> tuple[Path, dict] | None:
     cfg_pet = config.load_user_config().get("pet_id", "") or ""
 
     candidates: list[Path] = []
-    env_pet = os.environ.get("CLAUDE_PET_ID", "").strip()
+    env_pet = (
+        os.environ.get("CLAUDE_PET_ID", "").strip()
+        or os.environ.get("CODEX_PET_ID", "").strip()
+    )
     if env_pet:
         candidates.append(config.CODEX_PETS_DIR / env_pet)
         candidates.append(config.PLUGIN_PETS_DIR / env_pet)

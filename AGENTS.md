@@ -4,19 +4,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`claude-code-pet` is a Claude Code **plugin** (not a standalone app) that ships a Linux desktop pet. It reuses the Codex pet asset format (`pet.json` + 1536×1872 spritesheet, 8×9 grid, 192×208 cells). There is no build system, no test suite, no linter — the whole plugin is three Python files driven by Claude Code hooks.
+`claude-code-pet` is a Claude Code and Codex CLI **plugin** (not a standalone app) that ships a Linux desktop pet. It reuses the Codex pet asset format (`pet.json` + 1536×1872 spritesheet, 8×9 grid, 192×208 cells). There is no build system, no test suite, no linter — the whole plugin is three Python files driven by agent hooks.
 
-Install during development by pointing `/plugin add` at this directory, or copy/clone into `~/.claude/plugins/`.
+Install during development by pointing Claude `/plugin add` at this directory, copying/cloning into `~/.claude/plugins/`, or referencing this directory from a Codex marketplace.
 
 ## Three-tier runtime architecture
 
-The plugin is intentionally split so Claude Code's hook process never blocks on Qt/PySide6:
+The plugin is intentionally split so the hook process never blocks on Qt/PySide6:
 
-1. **`hooks/hooks.json`** — Maps every relevant Claude lifecycle event (`SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `SubagentStop`, `Notification`, `PermissionRequest`, `PostToolUseFailure`, `SessionEnd`) to `scripts/pet_event.py <EventName>`. All hooks are `async: true` and short-timeout.
+1. **`hooks/hooks.json` / root `hooks.json`** — Maps every relevant Claude/Codex lifecycle event (`SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `SubagentStop`, `Notification`, `PermissionRequest`, `PostToolUseFailure`, `SessionEnd`) to `scripts/pet_event.py <EventName>`. All hooks are `async: true` and short-timeout.
 
-2. **`scripts/pet_event.py`** (hook relay) — Runs in the hook process. Ensures the managed venv exists and re-execs itself under it (`ensure_venv_and_reexec`), then sends one JSON line over a Unix socket to the daemon. On `SessionStart` only, if the socket isn't there, it spawns the daemon detached and retries for ~2s. Every error path is swallowed and logged; hooks must never block Claude.
+2. **`scripts/pet_event.py`** (hook relay) — Runs in the hook process. Ensures the managed venv exists and re-execs itself under it (`ensure_venv_and_reexec`), then sends one JSON line over a Unix socket to the daemon. On `SessionStart` only, if the socket isn't there, it spawns the daemon detached and retries for ~2s. Every error path is swallowed and logged; hooks must never block the agent.
 
-3. **`scripts/pet_daemon.py`** (long-running Qt process) — Frameless transparent always-on-top `QWidget`, renders frames from the atlas, listens on `QLocalServer`. Singleton-enforced via pidfile + socket probe. Tracks live sessions as `session_id -> Claude Code PID` and, by default, schedules its own quit shortly after the last session drains (whether via a clean `SessionEnd` hook or via the 5s liveness reaper noticing the Claude Code PID is gone — covers crashes / `SIGKILL` / closed terminal). Set `stay_even_no_session: true` in `~/.config/claude-code-pet/config.json` for the legacy "always-on" behavior; `/pet-stop` still works either way.
+3. **`scripts/pet_daemon.py`** (long-running Qt process) — Frameless transparent always-on-top `QWidget`, renders frames from the atlas, listens on `QLocalServer`. Singleton-enforced via pidfile + socket probe. Tracks live sessions as `session_id -> agent PID` and, by default, schedules its own quit shortly after the last session drains (whether via a clean `SessionEnd` hook or via the 5s liveness reaper noticing the Claude/Codex PID is gone — covers crashes / `SIGKILL` / closed terminal). Set `stay_even_no_session: true` in `~/.config/claude-code-pet/config.json` for the legacy "always-on" behavior; `/pet-stop` and the Codex pet skill still work either way.
 
 `scripts/config.py` is shared by both processes — paths, atlas geometry, the animation table, and the event-to-animation map all live there. **Change behavior there, not in the daemon.**
 
@@ -50,7 +50,7 @@ When changing drag logic, set `CCPET_DEBUG=1` in the daemon's environment to get
 
 ## Pet discovery order
 
-`pet_daemon.discover_pet` checks, in order: `$CLAUDE_PET_ID` → `config.json`'s `pet_id` → first valid dir under `~/.codex/pets/` (sorted) → first valid dir under this plugin's `pets/`. A "valid" dir has `pet.json` and the file referenced by its `spritesheetPath` (default `spritesheet.webp`). The `/pet-set <id>` slash command writes `pet_id` to config and asks the daemon to `reload`.
+`pet_daemon.discover_pet` checks, in order: `$CLAUDE_PET_ID` / `$CODEX_PET_ID` → `config.json`'s `pet_id` → first valid dir under `~/.codex/pets/` (sorted) → first valid dir under this plugin's `pets/`. A "valid" dir has `pet.json` and the file referenced by its `spritesheetPath` (default `spritesheet.webp`). The `/pet-set <id>` slash command and Codex pet skill write `pet_id` to config and ask the daemon to `reload`.
 
 ## Filesystem layout (XDG-respecting)
 
@@ -72,19 +72,19 @@ When changing drag logic, set `CCPET_DEBUG=1` in the daemon's environment to get
   ```bash
   ~/.local/share/claude-code-pet/venv/bin/python scripts/pet_daemon.py
   ```
-- **Send a synthetic event** without going through Claude:
+- **Send a synthetic event** without going through Claude/Codex:
   ```bash
   echo '{}' | scripts/pet_event.py Stop
   ```
 - **Stop the daemon**: `/pet-stop` (or `scripts/pet_event.py daemon-stop`).
-- **Switch pets**: `/pet-set <pet-id>` (or edit `~/.config/claude-code-pet/config.json`).
+- **Switch pets**: `/pet-set <pet-id>`, ask Codex to switch the pet, or edit `~/.config/claude-code-pet/config.json`.
 - **Force a clean reinstall**: see the Uninstall block in `README.md`.
 
 ## Adding a new animation or event
 
 1. Add the row + per-frame durations to `config.ANIMATIONS` and put it in `LOOPING_STATES` or `ONESHOT_STATES`.
-2. If it's triggered by a Claude event, register it in one or more of `config.INTERVAL_OPEN` (looping interval), `config.INTERVAL_CLOSE` (which openers it pops), and `config.ONESHOTS` (single-pass flash). A single event can appear in all three.
-3. If it's a new Claude hook, also add it to `hooks/hooks.json`.
+2. If it's triggered by a Claude/Codex event, register it in one or more of `config.INTERVAL_OPEN` (looping interval), `config.INTERVAL_CLOSE` (which openers it pops), and `config.ONESHOTS` (single-pass flash). A single event can appear in all three.
+3. If it's a new agent hook, also add it to `hooks/hooks.json` and root `hooks.json`.
 4. The daemon's state machine picks it up automatically — no daemon code changes needed unless you're introducing a new priority layer.
 
 ## Tuning animation durations

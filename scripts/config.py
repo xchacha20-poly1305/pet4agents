@@ -109,7 +109,11 @@ WINDOW_STATE_PATH = CONFIG_DIR / "state.json"
 
 # --- Pet discovery roots ---
 CODEX_PETS_DIR = HOME / ".codex/pets"
-PLUGIN_ROOT = Path(os.environ.get("CLAUDE_PLUGIN_ROOT", Path(__file__).resolve().parent.parent))
+PLUGIN_ROOT = Path(
+    os.environ.get("CLAUDE_PLUGIN_ROOT")
+    or os.environ.get("CODEX_PLUGIN_ROOT")
+    or Path(__file__).resolve().parent.parent
+)
 PLUGIN_PETS_DIR = PLUGIN_ROOT / "pets"
 
 
