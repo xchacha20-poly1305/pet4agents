@@ -13,13 +13,17 @@ PySide6 is auto-installed into a private venv at `~/.local/share/claude-code-pet
 
 ## Install
 
-```bash
-git clone codeberg.org/xchacha20-poly1305/pet4claude
-# from this directory:
-/plugin add pet4claude
+If you didn't install [my plugin marketplace](https://codeberg.org/xchacha20-poly1305/cc-plugin), install it first.
+
+```shell
+claude plugin marketplace add https://codeberg.org/xchacha20-poly1305/cc-plugin.git
 ```
 
-Or copy/clone into your `~/.claude/plugins/` directory and enable via `/plugin`.
+Then you can install it:
+
+```shell
+claude plugin install pet4claude@anrong-plugins
+```
 
 ## Behavior
 
