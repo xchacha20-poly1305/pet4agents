@@ -31,23 +31,57 @@ LOOPING_STATES = {"idle", "running", "waiting", "running-right", "running-left"}
 ONESHOT_STATES = {"waving", "jumping", "failed", "review"}
 
 # --- Event → animation mapping ---
-# (animation, is_oneshot)
-# is_oneshot=True: play once then return to base; base is unchanged
-# is_oneshot=False: change base state (looping)
-EVENT_MAP: dict[str, tuple[str, bool]] = {
-    "SessionStart":       ("waving",  True),
-    "SessionEnd":         ("waving",  True),
-    "UserPromptSubmit":   ("running", False),
-    "PreToolUse":         ("running", False),
-    "Stop":               ("jumping", True),    # also resets base to idle (handled in daemon)
-    "SubagentStop":       ("jumping", True),
-    "Notification":       ("review",  True),
-    "PermissionRequest":  ("waving",  True),
-    "PostToolUseFailure": ("failed",  True),
+#
+# Three orthogonal tables. Any event may appear in zero, one, or several:
+#   INTERVAL_OPEN  : pushes a looping animation onto the base stack
+#   INTERVAL_CLOSE : pops matching opens off the top of the stack
+#   ONESHOTS       : plays a single animation overlaid on whatever's on top
+#
+# An event is processed in order: close -> open -> oneshot. This lets a single
+# event (e.g. PreToolUse) close one interval (PermissionRequest) and open
+# another (a tool-execution interval) atomically.
+#
+# Why a stack? Tool calls nest inside the prompt turn, so PostToolUse needs to
+# fall back to the *outer* "running" loop, not all the way to idle. The stack
+# also lets terminal events like Notification / PermissionRequest loop forever
+# until the next user action implicitly closes them — instead of flashing once
+# and being missed.
+
+# event -> animation pushed when the event opens an interval
+INTERVAL_OPEN: dict[str, str] = {
+    "UserPromptSubmit":  "running",
+    "PreToolUse":        "waiting",
+    "Notification":      "review",
+    "PermissionRequest": "waving",
 }
 
-# Events that should also reset base state to idle
-RESET_BASE_EVENTS = {"Stop", "SubagentStop", "SessionEnd"}
+# event -> set of opener event names this event closes (popped from stack top
+# while the topmost entry is in the set; stops at the first non-match so
+# nested intervals stay correct)
+INTERVAL_CLOSE: dict[str, set[str]] = {
+    "PostToolUse":        {"PreToolUse"},
+    "PostToolUseFailure": {"PreToolUse"},
+    # Tool execution implies any pending permission request was resolved.
+    "PreToolUse":         {"PermissionRequest"},
+    # User responding closes any pending notification/permission alert.
+    "UserPromptSubmit":   {"Notification", "PermissionRequest"},
+    # Terminal events tear everything down to base.
+    "Stop":               {"UserPromptSubmit", "PreToolUse",
+                           "Notification", "PermissionRequest"},
+    "SubagentStop":       {"UserPromptSubmit", "PreToolUse",
+                           "Notification", "PermissionRequest"},
+    "SessionEnd":         {"UserPromptSubmit", "PreToolUse",
+                           "Notification", "PermissionRequest"},
+}
+
+# event -> animation played once as a flash overlay on the current base
+ONESHOTS: dict[str, str] = {
+    "SessionStart":       "waving",
+    "SessionEnd":         "waving",
+    "Stop":               "jumping",
+    "SubagentStop":       "jumping",
+    "PostToolUseFailure": "failed",
+}
 
 # --- Filesystem paths ---
 def _xdg(env: str, default: Path) -> Path:

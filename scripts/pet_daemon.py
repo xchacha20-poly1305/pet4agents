@@ -6,11 +6,14 @@ event JSON over a Unix socket sent by pet_event.py.
 
 State machine has three layers, in priority order:
   drag_state    — set while the mouse is dragging the pet
-  oneshot_state — single-pass states (waving/jumping/failed/review)
-  base_state    — looping ambient state (idle/running/waiting)
+  oneshot_state — single-pass overlay (waving/jumping/failed/review)
+  base_stack    — stack of looping intervals, top is the active loop;
+                  bottom is always (None, "idle") and never popped
 
-When a oneshot finishes, we fall back to base_state. drag_state is cleared on
-mouse release.
+Events open intervals (push onto base_stack), close intervals (pop matching
+entries off the top), and/or play a oneshot. See config.INTERVAL_OPEN /
+INTERVAL_CLOSE / ONESHOTS for the per-event tables. When a oneshot finishes,
+we fall back to base_stack[-1]. drag_state is cleared on mouse release.
 """
 from __future__ import annotations
 
@@ -170,7 +173,7 @@ class PetWindow(QWidget):
         self.atlas: QPixmap = QPixmap()
         self._frame_buf = QPixmap(config.CELL_W, config.CELL_H)
 
-        self.base_state = "idle"
+        self.base_stack: list[tuple[str | None, str]] = [(None, "idle")]
         self.oneshot_state: str | None = None
         self.drag_state: str | None = None
 
@@ -278,25 +281,46 @@ class PetWindow(QWidget):
             return self.drag_state, False  # drag states loop while held
         if self.oneshot_state:
             return self.oneshot_state, True
-        return self.base_state, False
+        return self.base_stack[-1][1], False
 
     def _sync_anim(self) -> None:
         name, oneshot = self._active_animation()
         if name != self.anim.name or oneshot != self.anim.is_oneshot:
             self.anim.set(name, oneshot)
 
+    def _close_intervals(self, close_set: set[str]) -> None:
+        """Pop entries off the top of base_stack while their opener is in
+        close_set. Stops at the first non-matching entry to preserve nesting,
+        and never pops the sentinel (None, "idle") at the bottom."""
+        while len(self.base_stack) > 1:
+            opener, _ = self.base_stack[-1]
+            if opener in close_set:
+                self.base_stack.pop()
+            else:
+                break
+
     def apply_event(self, event_name: str) -> None:
-        spec = config.EVENT_MAP.get(event_name)
-        if not spec:
+        # Ignore events that don't appear in any of the three tables. This
+        # also covers internal/unknown messages.
+        if (event_name not in config.INTERVAL_CLOSE
+                and event_name not in config.INTERVAL_OPEN
+                and event_name not in config.ONESHOTS):
             return
-        anim_name, is_oneshot = spec
-        if event_name in config.RESET_BASE_EVENTS:
-            self.base_state = "idle"
-        if is_oneshot:
-            self.oneshot_state = anim_name
-        else:
-            self.base_state = anim_name
-            self.oneshot_state = None
+
+        # Order matters: close first (so an event can close an outer interval
+        # before opening its own), then open, then trigger any oneshot flash.
+        close_set = config.INTERVAL_CLOSE.get(event_name)
+        if close_set:
+            self._close_intervals(close_set)
+
+        open_anim = config.INTERVAL_OPEN.get(event_name)
+        if open_anim:
+            self.base_stack.append((event_name, open_anim))
+
+        oneshot = config.ONESHOTS.get(event_name)
+        if oneshot:
+            self.oneshot_state = oneshot
+
         self._sync_anim()
         self._restart_timer()
 

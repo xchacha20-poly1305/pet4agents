@@ -12,7 +12,7 @@ Install during development by pointing `/plugin add` at this directory, or copy/
 
 The plugin is intentionally split so Claude Code's hook process never blocks on Qt/PySide6:
 
-1. **`hooks/hooks.json`** — Maps every relevant Claude lifecycle event (`SessionStart`, `UserPromptSubmit`, `PreToolUse`, `Stop`, `SubagentStop`, `Notification`, `PermissionRequest`, `PostToolUseFailure`, `SessionEnd`) to `scripts/pet_event.py <EventName>`. All hooks are `async: true` and short-timeout.
+1. **`hooks/hooks.json`** — Maps every relevant Claude lifecycle event (`SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `SubagentStop`, `Notification`, `PermissionRequest`, `PostToolUseFailure`, `SessionEnd`) to `scripts/pet_event.py <EventName>`. All hooks are `async: true` and short-timeout.
 
 2. **`scripts/pet_event.py`** (hook relay) — Runs in the hook process. Ensures the managed venv exists and re-execs itself under it (`ensure_venv_and_reexec`), then sends one JSON line over a Unix socket to the daemon. On `SessionStart` only, if the socket isn't there, it spawns the daemon detached and retries for ~2s. Every error path is swallowed and logged; hooks must never block Claude.
 
@@ -25,10 +25,18 @@ The plugin is intentionally split so Claude Code's hook process never blocks on 
 Three priority layers, highest first — see `PetWindow._active_animation`:
 
 - `drag_state` — set on mouse press, cleared on release/idle. Values: `running-right` / `running-left` / `jumping`. Loops while held.
-- `oneshot_state` — single-pass animations (`waving`, `jumping`, `failed`, `review`). Cleared by `_tick` when the cycle finishes; falls back to `base_state`.
-- `base_state` — looping ambient (`idle`, `running`, `waiting`). Changed by non-oneshot events.
+- `oneshot_state` — single-pass overlay (`waving`, `jumping`, `failed`, `review`). Cleared by `_tick` when the cycle finishes; falls back to the top of `base_stack`.
+- `base_stack` — stack of `(opener_event, animation)` entries. Top is the active loop. Bottom sentinel `(None, "idle")` is never popped, so the pet always has an animation to play.
 
-`config.EVENT_MAP` declares `(animation, is_oneshot)` per event. `config.RESET_BASE_EVENTS` (`Stop`, `SubagentStop`, `SessionEnd`) additionally reset `base_state` to `idle`.
+Each event is a combination of three actions, processed in order:
+
+1. **Close** intervals — `config.INTERVAL_CLOSE[event]` is a set of opener event names; the daemon pops entries off the top of the stack while the topmost opener is in that set, stopping at the first non-match (so nested intervals stay correct).
+2. **Open** an interval — `config.INTERVAL_OPEN[event]` declares the looping animation to push.
+3. **Flash** a oneshot — `config.ONESHOTS[event]` overlays a single-pass animation on top of whatever's currently on the stack.
+
+A single event can do all three (e.g. `PreToolUse` closes a `PermissionRequest` interval, opens a `waiting` interval, and plays no oneshot; `Stop` closes everything down to idle and flashes a `jumping` oneshot). Events that appear in none of the three tables are ignored.
+
+The closed-loop model means terminal-feeling events (`Notification`, `PermissionRequest`) loop until the next user action implicitly closes them, instead of flashing once and being missed.
 
 ## Drag handling — platform pitfalls
 
@@ -75,6 +83,6 @@ When changing drag logic, set `CCPET_DEBUG=1` in the daemon's environment to get
 ## Adding a new animation or event
 
 1. Add the row + per-frame durations to `config.ANIMATIONS` and put it in `LOOPING_STATES` or `ONESHOT_STATES`.
-2. If it's triggered by a Claude event, add to `config.EVENT_MAP` and (if it should reset the base) `config.RESET_BASE_EVENTS`.
+2. If it's triggered by a Claude event, register it in one or more of `config.INTERVAL_OPEN` (looping interval), `config.INTERVAL_CLOSE` (which openers it pops), and `config.ONESHOTS` (single-pass flash). A single event can appear in all three.
 3. If it's a new Claude hook, also add it to `hooks/hooks.json`.
 4. The daemon's state machine picks it up automatically — no daemon code changes needed unless you're introducing a new priority layer.
