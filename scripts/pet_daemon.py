@@ -59,6 +59,25 @@ def _log(line: str) -> None:
 
 # ----------------------- Pet discovery -----------------------
 
+_SHEET_FALLBACKS = ("spritesheet.webp", "spritesheet.png")
+
+
+def _resolve_sheet_path(pet_dir: Path, meta: dict) -> Path | None:
+    """Return the spritesheet path for a pet dir, or None if not found.
+
+    If `spritesheetPath` is set in pet.json, that exact file must exist.
+    Otherwise probe the conventional names (webp first for back-compat, then png)."""
+    explicit = meta.get("spritesheetPath")
+    if explicit:
+        p = pet_dir / explicit
+        return p if p.exists() else None
+    for name in _SHEET_FALLBACKS:
+        p = pet_dir / name
+        if p.exists():
+            return p
+    return None
+
+
 def _is_valid_pet_dir(d: Path) -> bool:
     if not d.is_dir():
         return False
@@ -69,8 +88,7 @@ def _is_valid_pet_dir(d: Path) -> bool:
         meta = json.loads(pet_json.read_text("utf-8"))
     except Exception:
         return False
-    sheet_rel = meta.get("spritesheetPath") or "spritesheet.webp"
-    return (d / sheet_rel).exists()
+    return _resolve_sheet_path(d, meta) is not None
 
 
 def discover_pet() -> tuple[Path, dict] | None:
@@ -266,8 +284,10 @@ class PetWindow(QWidget):
         self.setWindowTitle(self.meta.get("displayName") or "Pet")
 
     def _load_pet(self, pet_dir: Path, meta: dict) -> None:
-        sheet_rel = meta.get("spritesheetPath") or "spritesheet.webp"
-        sheet_path = pet_dir / sheet_rel
+        sheet_path = _resolve_sheet_path(pet_dir, meta)
+        if sheet_path is None:
+            _log(f"no spritesheet (.webp/.png) found in {pet_dir}")
+            return
         pix = QPixmap(str(sheet_path))
         if pix.isNull():
             _log(f"failed to load atlas: {sheet_path}")

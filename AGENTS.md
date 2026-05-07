@@ -50,7 +50,7 @@ When changing drag logic, set `CCPET_DEBUG=1` in the daemon's environment to get
 
 ## Pet discovery order
 
-`pet_daemon.discover_pet` checks, in order: `$CLAUDE_PET_ID` / `$CODEX_PET_ID` → `config.json`'s `pet_id` → first valid dir under `~/.codex/pets/` (sorted) → first valid dir under this plugin's `pets/`. A "valid" dir has `pet.json` and the file referenced by its `spritesheetPath` (default `spritesheet.webp`). The `/pet-set <id>` slash command and Codex pet skill write `pet_id` to config and ask the daemon to `reload`.
+`pet_daemon.discover_pet` checks, in order: `$CLAUDE_PET_ID` / `$CODEX_PET_ID` → `config.json`'s `pet_id` → first valid dir under `~/.codex/pets/` (sorted) → first valid dir under this plugin's `pets/`. A "valid" dir has `pet.json` and a spritesheet — either the file referenced by `spritesheetPath`, or (when that field is omitted) `spritesheet.webp` / `spritesheet.png` discovered via probe order. The `/pet-set <id>` slash command and Codex pet skill write `pet_id` to config and ask the daemon to `reload`.
 
 ## Filesystem layout (XDG-respecting)
 

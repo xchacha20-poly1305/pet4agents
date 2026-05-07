@@ -7,7 +7,7 @@ A Linux desktop pet plugin for [Claude Code](https://claude.com/claude-code) and
 - Linux (X11 or native Wayland)
 - Python 3.9+ available as `python3` (pip / venv module included)
 - A working desktop session (`DISPLAY` or `WAYLAND_DISPLAY`)
-- A Codex-format pet at `~/.codex/pets/<pet-id>/` (`pet.json` + `spritesheet.webp`)
+- A Codex-format pet at `~/.codex/pets/<pet-id>/` (`pet.json` + `spritesheet.webp` or `spritesheet.png`)
 
 PySide6 is auto-installed into a private venv at `~/.local/share/claude-code-pet/venv/` on first hook fire (~60 MB download, one-time).
 

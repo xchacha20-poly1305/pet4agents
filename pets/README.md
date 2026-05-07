@@ -15,4 +15,6 @@ Each pet is a directory with the same layout as Codex:
 └── spritesheet.webp   # 1536x1872 RGBA, 8 cols x 9 rows, 192x208 per cell
 ```
 
+The spritesheet may be `.webp` or `.png`. If `spritesheetPath` is omitted from `pet.json`, the daemon probes `spritesheet.webp` first, then `spritesheet.png`.
+
 Use the `hatch-pet` skill to generate a new pet, or simply reuse an existing Codex one from `~/.codex/pets/`.
