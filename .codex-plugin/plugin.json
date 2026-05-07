@@ -1,6 +1,6 @@
 {
   "name": "pet4claude",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "A Linux desktop pet for Claude Code and Codex CLI sessions.",
   "author": {
     "name": "anrong"
