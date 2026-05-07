@@ -11,9 +11,11 @@ A Linux desktop pet plugin for [Claude Code](https://claude.com/claude-code) and
 
 PySide6 is auto-installed into a private venv at `~/.local/share/claude-code-pet/venv/` on first hook fire (~60 MB download, one-time).
 
-## Install for Claude Code
+## Install
 
-If you didn't install [my plugin marketplace](https://codeberg.org/xchacha20-poly1305/cc-plugin), install it first.
+### Claude Code
+
+If you didn't add [my plugin marketplace](https://codeberg.org/xchacha20-poly1305/cc-plugin), add it first.
 
 ```shell
 claude plugin marketplace add https://codeberg.org/xchacha20-poly1305/cc-plugin.git
@@ -25,9 +27,30 @@ Then you can install it:
 claude plugin install pet4claude@anrong-plugins
 ```
 
-## Codex CLI plugin files
+### Codex
 
-As same as Claude Code, just replace `claude` with `codex`.
+Add my plugin marketplace if not have:
+
+```shell
+codex plugin marketplace add https://codeberg.org/xchacha20-poly1305/cc-plugin.git
+```
+
+Codex has no `plugin install` CLI subcommand — install through the TUI: launch `codex`, run `/plugins`, pick `pet4claude@anrong-plugins`, and confirm.
+
+Enable `plugin_hooks` feature in `~/.codex/config.toml`:
+
+```toml
+[features]
+plugin_hooks = true
+```
+
+Then trust the hooks in TUI: run `/hooks`, enter each hook, then press `t` to trust.
+
+#### Behavior difference
+
+In Codex, some behaviors may different.
+
+- The pet will be delayed to display after sending your first request, not on program starting.
 
 ## Behavior
 
@@ -82,12 +105,31 @@ Override the pet via env var: `CLAUDE_PET_ID=<id>` or `CODEX_PET_ID=<id>`.
 
 ## Uninstall
 
+Remove the daemon's runtime files (venv, config, state, socket):
+
 ```bash
 rm -rf ~/.local/share/claude-code-pet ~/.config/claude-code-pet ~/.local/state/claude-code-pet
 rm -f "${XDG_RUNTIME_DIR:-/tmp}/claude-code-pet.sock"
 ```
 
-Then disable the plugin in Claude Code or Codex.
+Then remove the plugin from each agent that had it installed.
+
+### Claude Code
+
+```shell
+claude plugin uninstall pet4claude@anrong-plugins
+```
+
+### Codex CLI
+
+Codex has no `plugin uninstall` CLI subcommand (`codex plugin marketplace remove` only drops a marketplace, not an installed plugin). Uninstall it from the TUI's `/plugins` popup, or do it by hand:
+
+1. Delete the `[plugins."pet4claude@anrong-plugins"]` block from `~/.codex/config.toml`.
+2. Drop the cached plugin source:
+
+   ```shell
+   rm -rf ~/.codex/plugins/cache/anrong-plugins/pet4claude
+   ```
 
 # LICENSE
 
