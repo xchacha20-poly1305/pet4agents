@@ -131,6 +131,10 @@ Codex has no `plugin uninstall` CLI subcommand (`codex plugin marketplace remove
    rm -rf ~/.codex/plugins/cache/anrong-plugins/pet4claude
    ```
 
+# Privacy Policy
+
+[PRIVACY.md](./PRIVACY.md)
+
 # LICENSE
 
 [MIT](./LICENSE)
