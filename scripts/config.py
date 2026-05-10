@@ -54,6 +54,11 @@ INTERVAL_OPEN: dict[str, str] = {
     "PreToolUse":        "waiting",
     "Notification":      "review",
     "PermissionRequest": "waving",
+    # Compaction is between-turn busy work; show the same waiting loop.
+    "PreCompact":        "waiting",
+    # MCP server asking for input behaves like PermissionRequest — a terminal
+    # interactive state that loops until the user responds.
+    "Elicitation":       "waving",
 }
 
 # event -> set of opener event names this event closes (popped from stack top
@@ -66,13 +71,23 @@ INTERVAL_CLOSE: dict[str, set[str]] = {
     "PreToolUse":         {"PermissionRequest"},
     # User responding closes any pending notification/permission alert.
     "UserPromptSubmit":   {"Notification", "PermissionRequest"},
+    # Resolution events for the new opener pairs.
+    "PermissionDenied":   {"PermissionRequest"},
+    "PostCompact":        {"PreCompact"},
+    "ElicitationResult":  {"Elicitation"},
     # Terminal events tear everything down to base.
     "Stop":               {"UserPromptSubmit", "PreToolUse",
-                           "Notification", "PermissionRequest"},
+                           "Notification", "PermissionRequest",
+                           "PreCompact", "Elicitation"},
+    "StopFailure":        {"UserPromptSubmit", "PreToolUse",
+                           "Notification", "PermissionRequest",
+                           "PreCompact", "Elicitation"},
     "SubagentStop":       {"UserPromptSubmit", "PreToolUse",
-                           "Notification", "PermissionRequest"},
+                           "Notification", "PermissionRequest",
+                           "PreCompact", "Elicitation"},
     "SessionEnd":         {"UserPromptSubmit", "PreToolUse",
-                           "Notification", "PermissionRequest"},
+                           "Notification", "PermissionRequest",
+                           "PreCompact", "Elicitation"},
 }
 
 # event -> animation played once as a flash overlay on the current base
@@ -80,8 +95,13 @@ ONESHOTS: dict[str, str] = {
     "SessionStart":       "waving",
     "SessionEnd":         "waving",
     "Stop":               "jumping",
+    "StopFailure":        "failed",
     "SubagentStop":       "jumping",
+    "SubagentStart":      "review",
+    "TaskCreated":        "review",
+    "TaskCompleted":      "jumping",
     "PostToolUseFailure": "failed",
+    "PermissionDenied":   "failed",
 }
 
 # --- Filesystem paths ---

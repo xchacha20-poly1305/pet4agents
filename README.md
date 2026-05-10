@@ -58,11 +58,20 @@ In Codex, some behaviors may different.
 | ---------------------- | ---------------------------- |
 | `SessionStart`         | wave once → idle             |
 | `UserPromptSubmit`     | running (loop)               |
-| `PreToolUse`           | running (loop)               |
+| `PreToolUse`           | waiting (loop)               |
+| `PostToolUse`          | closes the tool's waiting loop |
+| `PostToolUseFailure`   | failed once → back to running |
+| `Notification`         | review (loop, cleared on next user action) |
+| `PermissionRequest`    | waving (loop, cleared on resolution) |
+| `PermissionDenied`     | failed once (closes the request) |
+| `Elicitation`          | waving (loop, while MCP awaits input) |
+| `ElicitationResult`    | closes the elicitation loop  |
+| `PreCompact` / `PostCompact` | waiting (loop) during context compaction |
+| `SubagentStart`        | review once                  |
+| `TaskCreated`          | review once                  |
+| `TaskCompleted`        | jump once                    |
 | `Stop` / `SubagentStop`| jump once → idle             |
-| `Notification`         | review once                  |
-| `PermissionRequest`    | wave once                    |
-| `PostToolUseFailure`   | failed once                  |
+| `StopFailure`          | failed once → idle           |
 | `SessionEnd`           | wave once → quit if no other sessions remain (override with `stay_even_no_session`) |
 | Drag                   | running-right / running-left / jumping based on motion |
 

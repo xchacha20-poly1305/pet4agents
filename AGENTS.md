@@ -12,7 +12,7 @@ Install during development by pointing Claude `/plugin add` at this directory, c
 
 The plugin is intentionally split so the hook process never blocks on Qt/PySide6:
 
-1. **`hooks/hooks.json` / root `hooks.json`** — Maps every relevant Claude/Codex lifecycle event (`SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `SubagentStop`, `Notification`, `PermissionRequest`, `PostToolUseFailure`, `SessionEnd`) to `scripts/pet_event.py <EventName>`. All hooks are `async: true` and short-timeout.
+1. **`hooks/hooks.json` / root `hooks.json`** — Maps every relevant Claude/Codex lifecycle event (`SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `Stop`, `StopFailure`, `SubagentStart`, `SubagentStop`, `Notification`, `PermissionRequest`, `PermissionDenied`, `TaskCreated`, `TaskCompleted`, `PreCompact`, `PostCompact`, `Elicitation`, `ElicitationResult`, `SessionEnd`) to `scripts/pet_event.py <EventName>`. All hooks are `async: true` and short-timeout.
 
 2. **`scripts/pet_event.py`** (hook relay) — Runs in the hook process. Ensures the managed venv exists and re-execs itself under it (`ensure_venv_and_reexec`), then sends one JSON line over a Unix socket to the daemon. On `SessionStart` only, if the socket isn't there, it spawns the daemon detached and retries for ~2s. Every error path is swallowed and logged; hooks must never block the agent.
 
