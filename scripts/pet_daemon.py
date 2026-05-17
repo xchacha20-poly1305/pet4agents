@@ -193,14 +193,14 @@ class PetWindow(QWidget):
         self.oneshot_state: str | None = None
         self.drag_state: str | None = None
 
-        # Tracks live Claude sessions: session_id -> Claude Code parent PID.
+        # Tracks live sessions: session_id -> (parent_pid, agent_type).
+        # parent_pid: 0 means unknown — session is exempt from liveness check.
+        # agent_type: "claude"|"codex"|"" — used for per-tool pet switching.
         # Populated on event arrival, drained on SessionEnd or when the
-        # parent PID is observed dead (`_reap_dead_sessions`). A value of 0
-        # means we couldn't determine the PID and the session is exempt
-        # from the liveness check (only an explicit SessionEnd will drain it).
-        # When this dict drains and `stay_even_no_session` is False (the
-        # default), the daemon schedules its own quit — see `_track_session`.
-        self.active_sessions: dict[str, int] = {}
+        # parent PID is observed dead (`_reap_dead_sessions`). When this dict
+        # drains and `stay_even_no_session` is False (the default), the daemon
+        # schedules its own quit — see `_track_session`.
+        self.active_sessions: dict[str, tuple[int, str]] = {}
 
         self.anim = AnimationController()
 
@@ -335,11 +335,11 @@ class PetWindow(QWidget):
             else:
                 break
 
-    def apply_event(self, event_name: str, session_id: str = "", parent_pid: int = 0) -> None:
+    def apply_event(self, event_name: str, session_id: str = "", parent_pid: int = 0, agent_type: str = "") -> None:
         # Session lifecycle bookkeeping runs first so the
         # `stay_even_no_session` check can see an up-to-date set even for
         # events that don't appear in any of the animation tables.
-        self._track_session(event_name, session_id, parent_pid)
+        self._track_session(event_name, session_id, parent_pid, agent_type)
 
         # Ignore events that don't appear in any of the three tables. This
         # also covers internal/unknown messages.
@@ -381,8 +381,38 @@ class PetWindow(QWidget):
     # signal-zero syscall per session) so we keep it fairly snappy.
     _SESSION_LIVENESS_INTERVAL_MS = 5000
 
+    def _switch_pet_for_agent(self, agent_type: str) -> None:
+        """Load the per-tool pet from config if one is configured for agent_type."""
+        if not agent_type:
+            return
+        cfg = config.load_user_config()
+        pet_id = cfg.get(f"{agent_type}_pet_id", "").strip()
+        if not pet_id:
+            return
+        for root in (config.CODEX_PETS_DIR, config.PLUGIN_PETS_DIR):
+            candidate = root / pet_id
+            if _is_valid_pet_dir(candidate):
+                try:
+                    meta = json.loads((candidate / "pet.json").read_text("utf-8"))
+                    self._load_pet(candidate, meta)
+                    self._render_current_frame()
+                    _log(f"switched to {agent_type} pet: {pet_id}")
+                except Exception as e:
+                    _log(f"_switch_pet_for_agent({agent_type!r}): load failed: {e}")
+                return
+        _log(f"_switch_pet_for_agent({agent_type!r}): pet {pet_id!r} not found")
+
+    def _maybe_revert_pet(self) -> None:
+        """After a session ends, switch to the pet for the remaining agent type
+        if all remaining sessions belong to a single known tool."""
+        if not self.active_sessions:
+            return
+        remaining = {atype for _pid, atype in self.active_sessions.values() if atype}
+        if len(remaining) == 1:
+            self._switch_pet_for_agent(next(iter(remaining)))
+
     def _track_session(
-        self, event_name: str, session_id: str, parent_pid: int
+        self, event_name: str, session_id: str, parent_pid: int, agent_type: str = ""
     ) -> None:
         """Maintain `self.active_sessions` from incoming events.
 
@@ -400,6 +430,7 @@ class PetWindow(QWidget):
                     f"session ended: {session_id} "
                     f"(active={len(self.active_sessions)})"
                 )
+            self._maybe_revert_pet()
             self._maybe_schedule_quit()
             return
 
@@ -407,16 +438,20 @@ class PetWindow(QWidget):
             return
         prev = self.active_sessions.get(session_id)
         if prev is None:
-            self.active_sessions[session_id] = parent_pid
+            self.active_sessions[session_id] = (parent_pid, agent_type)
             label = "registered" if event_name == "SessionStart" else "learned mid-stream"
             _log(
                 f"session {label}: {session_id} pid={parent_pid or '?'} "
-                f"(active={len(self.active_sessions)})"
+                f"agent={agent_type or '?'} (active={len(self.active_sessions)})"
             )
-        elif parent_pid > 0 and prev <= 0:
-            # Late binding: we knew the session but not its PID; learn now.
-            self.active_sessions[session_id] = parent_pid
-            _log(f"session {session_id} pid learned: {parent_pid}")
+            if event_name == "SessionStart":
+                self._switch_pet_for_agent(agent_type)
+        else:
+            prev_pid, prev_type = prev
+            if parent_pid > 0 and prev_pid <= 0:
+                # Late binding: we knew the session but not its PID; learn now.
+                self.active_sessions[session_id] = (parent_pid, agent_type or prev_type)
+                _log(f"session {session_id} pid learned: {parent_pid}")
 
     def _should_quit_now(self) -> bool:
         """Common predicate for both the deferred-quit scheduler and the
@@ -459,7 +494,7 @@ class PetWindow(QWidget):
         if not self.active_sessions:
             return
         dead: list[tuple[str, int]] = []
-        for sid, pid in self.active_sessions.items():
+        for sid, (pid, _atype) in self.active_sessions.items():
             if pid <= 0:
                 continue
             try:
@@ -814,6 +849,7 @@ class IpcServer:
                 msg.get("event", ""),
                 msg.get("session_id", ""),
                 parent_pid,
+                msg.get("agent_type", ""),
             )
         elif kind == "quit":
             self.win.quit_requested.emit()

@@ -87,6 +87,8 @@ In Codex, some behaviors may different.
 ```json
 {
   "pet_id": "claude-muse",
+  "claude_pet_id": "claude-muse",
+  "codex_pet_id": "codex-buddy",
   "stay_even_no_session": false,
   "animation_durations": {
     "idle":          [280, 110, 110, 140, 140, 320],
@@ -98,7 +100,9 @@ In Codex, some behaviors may different.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `pet_id` | (auto-discover) | Which pet folder under `~/.codex/pets/` (or this plugin's `pets/`) to load. |
+| `pet_id` | (auto-discover) | Fallback pet folder under `~/.codex/pets/` (or this plugin's `pets/`) when no per-tool ID is set. |
+| `claude_pet_id` | `""` | Pet to show when a Claude Code session starts. Reverts to the Codex pet when only Codex sessions remain. Empty = use `pet_id` discovery. |
+| `codex_pet_id` | `""` | Pet to show when a Codex session starts. Reverts to the Claude pet when only Claude sessions remain. Empty = use `pet_id` discovery. |
 | `stay_even_no_session` | `false` | When `false`, the daemon exits shortly after the last agent session ends. Set to `true` to keep the daemon running until you call `/pet-stop` or ask Codex to stop the pet. The "session ends" check covers both the clean `SessionEnd` hook *and* the case where Claude Code / Codex itself crashes / is `SIGKILL`'d / has its terminal closed (the daemon polls the agent PID every 5s as a safety net). |
 | `animation_durations` | `{}` | Per-animation per-frame duration overrides in **milliseconds**. Each value is a list, one entry per frame. Length **must** match the default frame count for that animation (the spritesheet row has a fixed number of cells); mismatched, malformed, or unknown entries are silently ignored. Animation names: `idle`, `running-right`, `running-left`, `waving`, `jumping`, `failed`, `waiting`, `running`, `review` — frame counts: see `scripts/config.py:ANIMATIONS`. JSON is the only entry point; there is no slash command for this. |
 

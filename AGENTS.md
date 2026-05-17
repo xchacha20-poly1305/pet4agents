@@ -16,7 +16,7 @@ The plugin is intentionally split so the hook process never blocks on Qt/PySide6
 
 2. **`scripts/pet_event.py`** (hook relay) — Runs in the hook process. Ensures the managed venv exists and re-execs itself under it (`ensure_venv_and_reexec`), then sends one JSON line over a Unix socket to the daemon. On `SessionStart` only, if the socket isn't there, it spawns the daemon detached and retries for ~2s. Every error path is swallowed and logged; hooks must never block the agent.
 
-3. **`scripts/pet_daemon.py`** (long-running Qt process) — Frameless transparent always-on-top `QWidget`, renders frames from the atlas, listens on `QLocalServer`. Singleton-enforced via pidfile + socket probe. Tracks live sessions as `session_id -> agent PID` and, by default, schedules its own quit shortly after the last session drains (whether via a clean `SessionEnd` hook or via the 5s liveness reaper noticing the Claude/Codex PID is gone — covers crashes / `SIGKILL` / closed terminal). Set `stay_even_no_session: true` in `~/.config/claude-code-pet/config.json` for the legacy "always-on" behavior; `/pet-stop` and the Codex pet skill still work either way.
+3. **`scripts/pet_daemon.py`** (long-running Qt process) — Frameless transparent always-on-top `QWidget`, renders frames from the atlas, listens on `QLocalServer`. Singleton-enforced via pidfile + socket probe. Tracks live sessions as `session_id -> (parent_pid, agent_type)` and, by default, schedules its own quit shortly after the last session drains (whether via a clean `SessionEnd` hook or via the 5s liveness reaper noticing the Claude/Codex PID is gone — covers crashes / `SIGKILL` / closed terminal). On each `SessionStart` the daemon switches to the per-tool pet configured via `claude_pet_id` / `codex_pet_id`; on `SessionEnd` it reverts to the remaining tool's pet if all surviving sessions belong to one tool. Set `stay_even_no_session: true` in `~/.config/claude-code-pet/config.json` for the legacy "always-on" behavior; `/pet-stop` and the Codex pet skill still work either way.
 
 `scripts/config.py` is shared by both processes — paths, atlas geometry, the animation table, and the event-to-animation map all live there. **Change behavior there, not in the daemon.**
 
@@ -51,6 +51,8 @@ When changing drag logic, set `CCPET_DEBUG=1` in the daemon's environment to get
 ## Pet discovery order
 
 `pet_daemon.discover_pet` checks, in order: `$CLAUDE_PET_ID` / `$CODEX_PET_ID` → `config.json`'s `pet_id` → first valid dir under `~/.codex/pets/` (sorted) → first valid dir under this plugin's `pets/`. A "valid" dir has `pet.json` and a spritesheet — either the file referenced by `spritesheetPath`, or (when that field is omitted) `spritesheet.webp` / `spritesheet.png` discovered via probe order. The `/pet-set <id>` slash command and Codex pet skill write `pet_id` to config and ask the daemon to `reload`.
+
+Per-tool overrides (`claude_pet_id` / `codex_pet_id` in config) are handled separately by `PetWindow._switch_pet_for_agent` at runtime — they fire on every `SessionStart` and do not affect `discover_pet`. Both roots (`~/.codex/pets/` and the plugin's `pets/`) are searched.
 
 ## Filesystem layout (XDG-respecting)
 

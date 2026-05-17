@@ -151,6 +151,11 @@ def ensure_dirs() -> None:
 DEFAULT_USER_CONFIG: dict = {
     # Empty string = use auto-discovery order (env -> codex pets -> plugin pets).
     "pet_id": "",
+    # Per-tool pet IDs. When set, the daemon switches to this pet on the first
+    # SessionStart from that tool and reverts when only the other tool's
+    # sessions remain. Empty string = fall back to shared `pet_id` discovery.
+    "claude_pet_id": "",
+    "codex_pet_id": "",
     # When False (default) the daemon exits after the last Claude session ends.
     # When True the daemon keeps running until `/pet-stop` (legacy behavior).
     "stay_even_no_session": False,

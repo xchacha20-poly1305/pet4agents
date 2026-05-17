@@ -221,16 +221,17 @@ def send_to_daemon(payload: dict, timeout: float = 1.0) -> bool:
 AGENT_PROCESS_NAMES = {"claude", "codex"}
 
 
-def _is_agent_pid(pid: int) -> bool:
-    """True iff /proc/<pid> looks like a supported coding-agent binary.
+def _agent_name(pid: int) -> str:
+    """Return the agent name ("claude"|"codex") if pid is a supported agent binary, else "".
 
     Matches on `comm` (kernel-truncated executable basename) and on argv[0]'s
     basename. This keeps us from matching shell wrappers whose cmdline merely
     references paths under `~/.claude/` or `~/.codex/`.
     """
     try:
-        if Path(f"/proc/{pid}/comm").read_text("utf-8").strip().lower() in AGENT_PROCESS_NAMES:
-            return True
+        comm = Path(f"/proc/{pid}/comm").read_text("utf-8").strip().lower()
+        if comm in AGENT_PROCESS_NAMES:
+            return comm
     except OSError:
         pass
     try:
@@ -242,10 +243,14 @@ def _is_agent_pid(pid: int) -> bool:
             if name.endswith(".exe"):
                 name = name[:-4]
             if name in AGENT_PROCESS_NAMES:
-                return True
+                return name
     except OSError:
         pass
-    return False
+    return ""
+
+
+def _is_agent_pid(pid: int) -> bool:
+    return bool(_agent_name(pid))
 
 
 def _read_ppid(pid: int) -> int:
@@ -260,16 +265,16 @@ def _read_ppid(pid: int) -> int:
     return 0
 
 
-def find_agent_pid() -> int:
+def find_agent_info() -> tuple[int, str]:
     """Walk up the process tree to find the Claude Code or Codex process.
 
-    Returns the first ancestor whose comm or argv[0] basename is supported.
-    Falls back to `os.getppid()` if no such ancestor is found, or if /proc
+    Returns (pid, agent_type) where agent_type is "claude"|"codex"|"".
+    Falls back to (os.getppid(), "") if no agent ancestor is found or if /proc
     isn't available (non-Linux / containers without procfs)."""
     fallback = os.getppid()
     try:
         if not Path("/proc").exists():
-            return fallback
+            return fallback, ""
         pid = fallback
         seen: set[int] = set()
         # Cap iterations to defend against hostile /proc edits — process trees
@@ -278,15 +283,20 @@ def find_agent_pid() -> int:
             if pid <= 1 or pid in seen:
                 break
             seen.add(pid)
-            if _is_agent_pid(pid):
-                return pid
+            name = _agent_name(pid)
+            if name:
+                return pid, name
             ppid = _read_ppid(pid)
             if ppid <= 0:
                 break
             pid = ppid
     except Exception:
         pass
-    return fallback
+    return fallback, ""
+
+
+def find_agent_pid() -> int:
+    return find_agent_info()[0]
 
 
 def spawn_daemon() -> None:
@@ -340,6 +350,7 @@ def cmd_event(event_name: str) -> None:
         except Exception:
             hook_data = {"raw": raw[:200]}
 
+    agent_pid, agent_type = find_agent_info()
     payload = {
         "kind": "event",
         "event": event_name,
@@ -347,7 +358,9 @@ def cmd_event(event_name: str) -> None:
         "cwd": hook_data.get("cwd", os.getcwd()),
         # Daemon polls this PID for liveness so it can drain the session even
         # if SessionEnd never fires (agent crash / SIGKILL / terminal closed).
-        "parent_pid": find_agent_pid(),
+        "parent_pid": agent_pid,
+        # Which tool fired this event — used for per-tool pet selection.
+        "agent_type": agent_type,
     }
 
     ok = send_to_daemon(payload)
