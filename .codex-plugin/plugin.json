@@ -3,7 +3,8 @@
   "version": "0.2.3",
   "description": "A Linux desktop pet for Claude Code and Codex CLI sessions.",
   "author": {
-    "name": "anrong"
+    "name": "anrong",
+    "email": "HystericalDragons@proton.me"
   },
   "homepage": "https://codeberg.org/xchacha20-poly1305/pet4claude",
   "repository": "https://codeberg.org/xchacha20-poly1305/pet4claude",
@@ -29,6 +30,9 @@
       "Write"
     ],
     "websiteURL": "https://codeberg.org/xchacha20-poly1305/pet4claude",
-    "brandColor": "#D97757"
+    "brandColor": "#D97757",
+    "screenshots": [
+      "./assets/screenshot.png"
+    ]
   }
 }

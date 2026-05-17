@@ -2,6 +2,10 @@
 
 A Linux desktop pet plugin for [Claude Code](https://claude.com/claude-code) and Codex CLI, reusing the Codex pet format. The pet sits on top of your desktop, runs while the agent works, jumps when work completes, waves when permission is requested, and can be dragged around.
 
+## Screenshot
+
+![](./assets/screenshot.png)
+
 ## Requirements
 
 - Linux (X11 or native Wayland)
