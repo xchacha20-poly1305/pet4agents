@@ -312,13 +312,11 @@ def spawn_daemon() -> None:
         if env.get("CLAUDE_PET_QPA_PLATFORM"):
             env["QT_QPA_PLATFORM"] = env["CLAUDE_PET_QPA_PLATFORM"]
         elif env.get("DISPLAY"):
-            # Prefer XWayland (xcb) when an X server is reachable. Native
-            # Wayland's xdg_toplevel.move grabs the pointer for the duration
-            # of a drag — the app receives no events and can't update the
-            # facing direction mid-drag. Under xcb the WM-driven move keeps
-            # delivering moveEvent, which our drag-state tracker depends on.
-            # Users who explicitly want native Wayland can set
-            # CLAUDE_PET_QPA_PLATFORM=wayland.
+            # Prefer XWayland (xcb) when an X server is reachable. The daemon
+            # relies on X11 no-focus / bypass-window-manager hints so clicks
+            # and client-side drags can still be handled without stealing
+            # focus from the terminal. Users who explicitly want native
+            # Wayland can set CLAUDE_PET_QPA_PLATFORM=wayland.
             env["QT_QPA_PLATFORM"] = "xcb"
         subprocess.Popen(
             [str(config.VENV_PY), str(daemon_script)],

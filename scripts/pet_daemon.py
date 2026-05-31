@@ -30,7 +30,6 @@ import config  # noqa: E402
 
 from PySide6.QtCore import (  # noqa: E402
     QByteArray,
-    QEvent,
     QPoint,
     QRect,
     QSize,
@@ -39,7 +38,6 @@ from PySide6.QtCore import (  # noqa: E402
     Signal,
 )
 from PySide6.QtGui import (  # noqa: E402
-    QCursor,
     QGuiApplication,
     QPainter,
     QPixmap,
@@ -172,7 +170,7 @@ class AnimationController:
 # ----------------------- Window -----------------------
 
 DRAG_VEL_THRESHOLD = 4   # px per moveEvent to count as "running"
-DRAG_IDLE_TIMEOUT_MS = 220  # fallback drag: no moveEvent for this long -> ended
+DRAG_IDLE_TIMEOUT_MS = 220  # fallback drag: no moveEvent for this long -> check button state
 # A press is treated as a click (→ jumping oneshot on release) until either
 # the cursor crosses DRAG_VEL_THRESHOLD or the press is held this long. Once
 # either condition fires the press promotes to a drag (drag_state set).
@@ -214,17 +212,11 @@ class PetWindow(QWidget):
         self._armed = False
         self._last_move_pos = QPoint()
         self._press_pos = QPoint()
-        self._last_move_t_ms = 0
         self._drag_offset = QPoint()
-        self._system_drag_started_t_ms = 0
         # Accumulates horizontal movement until it crosses DRAG_VEL_THRESHOLD,
         # at which point we commit a running direction. Resets on sign reversal
         # so direction changes propagate even during slow drags.
         self._drag_dx_accum = 0
-        # Cursor position from the previous poll tick (used to derive dx during
-        # a system drag, since some compositors don't deliver moveEvents while
-        # the compositor owns the gesture).
-        self._last_cursor_pos = QPoint()
 
         self._init_window()
         self._load_pet(pet_dir, meta)
@@ -240,20 +232,12 @@ class PetWindow(QWidget):
         self._render_current_frame()
         self.timer.start(self.anim.current_duration_ms())
 
-        # Watchdog for client-side fallback drags. Native system drags may not
-        # deliver move/release events while the compositor owns the gesture.
+        # Watchdog for client-side drags. If movement stops while the button is
+        # still down, keep the drag session alive so movement can resume.
         self._drag_idle_timer = QTimer(self)
         self._drag_idle_timer.setSingleShot(True)
         self._drag_idle_timer.setInterval(DRAG_IDLE_TIMEOUT_MS)
         self._drag_idle_timer.timeout.connect(self._on_drag_idle)
-
-        # Cursor poll for system drags. Some compositors (notably Wayland with
-        # xdg_toplevel.move) don't deliver moveEvents to the application while
-        # they own the drag gesture, so we sample QCursor.pos() periodically
-        # to derive horizontal motion and update the running direction.
-        self._drag_poll_timer = QTimer(self)
-        self._drag_poll_timer.setInterval(33)  # ~30 Hz
-        self._drag_poll_timer.timeout.connect(self._poll_drag)
 
         # Long-press timer: distinguishes click from drag. Starts on press and
         # promotes the armed press into a drag if it fires before release.
@@ -277,11 +261,23 @@ class PetWindow(QWidget):
             | Qt.WindowStaysOnTopHint
             | Qt.Tool
             | Qt.NoDropShadowWindowHint
+            | Qt.WindowDoesNotAcceptFocus
+            | Qt.BypassWindowManagerHint
         )
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WA_NoSystemBackground, True)
+        self.setAttribute(Qt.WA_ShowWithoutActivating, True)
+        self.setAttribute(Qt.WA_X11DoNotAcceptFocus, True)
+        self.setFocusPolicy(Qt.NoFocus)
         self.setFixedSize(QSize(config.CELL_W, config.CELL_H))
         self.setWindowTitle(self.meta.get("displayName") or "Pet")
+
+    def _make_non_activating(self, widget: QWidget) -> None:
+        widget.setWindowFlag(Qt.WindowDoesNotAcceptFocus, True)
+        widget.setWindowFlag(Qt.BypassWindowManagerHint, True)
+        widget.setAttribute(Qt.WA_ShowWithoutActivating, True)
+        widget.setAttribute(Qt.WA_X11DoNotAcceptFocus, True)
+        widget.setFocusPolicy(Qt.NoFocus)
 
     def _load_pet(self, pet_dir: Path, meta: dict) -> None:
         sheet_path = _resolve_sheet_path(pet_dir, meta)
@@ -567,10 +563,7 @@ class PetWindow(QWidget):
         self._drag_offset = ev.globalPosition().toPoint() - self.frameGeometry().topLeft()
         self._last_move_pos = self.pos()
         self._press_pos = ev.globalPosition().toPoint()
-        self._last_move_t_ms = int(time.monotonic() * 1000)
-        self._system_drag_started_t_ms = 0
         self._drag_dx_accum = 0
-        self._last_cursor_pos = self._press_pos
         self._long_press_timer.start()
         if os.environ.get("CCPET_DEBUG"):
             _log("mousePress armed (waiting for long-press or drag-threshold)")
@@ -594,6 +587,7 @@ class PetWindow(QWidget):
         self.drag_state = "jumping"
         self._sync_anim()
         self._restart_timer()
+        self._drag_idle_timer.start()
         if os.environ.get("CCPET_DEBUG"):
             _log("_begin_drag (long-press or drag-threshold reached)")
 
@@ -613,9 +607,6 @@ class PetWindow(QWidget):
         if not self._dragging:
             super().mouseMoveEvent(ev)
             return
-        if self._system_drag_started_t_ms:
-            ev.accept()
-            return
 
         pointer_pos = ev.globalPosition().toPoint()
         total_dx = pointer_pos.x() - self._press_pos.x()
@@ -627,21 +618,6 @@ class PetWindow(QWidget):
                 ev.accept()
                 return
             self._update_drag_state(total_dx)
-            moved_by_system = False
-            wh = self.windowHandle()
-            if wh is not None:
-                try:
-                    moved_by_system = bool(wh.startSystemMove())
-                except Exception as e:
-                    _log(f"startSystemMove failed: {e}")
-            if moved_by_system:
-                self._system_drag_started_t_ms = int(time.monotonic() * 1000)
-                self._last_move_pos = self.pos()
-                self._last_move_t_ms = self._system_drag_started_t_ms
-                self._last_cursor_pos = pointer_pos
-                self._drag_poll_timer.start()
-                ev.accept()
-                return
             self._manual_dragging = True
 
         dx = new_pos.x() - self._last_move_pos.x()
@@ -649,36 +625,8 @@ class PetWindow(QWidget):
         self.move(new_pos)
         ev.accept()
 
-    def moveEvent(self, ev) -> None:
-        super().moveEvent(ev)
-        if self._dragging and not self._manual_dragging and self._system_drag_started_t_ms:
-            dx = ev.pos().x() - self._last_move_pos.x()
-            self._last_move_pos = ev.pos()
-            self._last_move_t_ms = int(time.monotonic() * 1000)
-            self._update_drag_state(dx)
-
-    def event(self, ev) -> bool:
-        if self._dragging and not self._manual_dragging and self._system_drag_started_t_ms:
-            event_type = ev.type()
-            if os.environ.get("CCPET_DEBUG") and event_type in {
-                QEvent.Type.WindowActivate,
-                QEvent.Type.NonClientAreaMouseButtonRelease,
-                QEvent.Type.MouseButtonRelease,
-            }:
-                _log(f"drag event type={event_type}")
-            if event_type in {
-                QEvent.Type.WindowActivate,
-                QEvent.Type.NonClientAreaMouseButtonRelease,
-                QEvent.Type.MouseButtonRelease,
-            }:
-                now_ms = int(time.monotonic() * 1000)
-                if now_ms - self._system_drag_started_t_ms >= DRAG_IDLE_TIMEOUT_MS:
-                    self._on_drag_idle()
-        return super().event(ev)
-
     def _update_drag_position(self, new_pos: QPoint, dx: int) -> None:
         self._last_move_pos = new_pos
-        self._last_move_t_ms = int(time.monotonic() * 1000)
         self._update_drag_state(dx)
         if self._manual_dragging:
             self._drag_idle_timer.start()  # restart watchdog
@@ -703,24 +651,6 @@ class PetWindow(QWidget):
             if os.environ.get("CCPET_DEBUG"):
                 _log(f"_update_drag_state dx={dx} -> {new_state}")
 
-    def _poll_drag(self) -> None:
-        """Sample QCursor.pos() during a system drag to derive horizontal motion.
-
-        Only used on platforms where startSystemMove() actually delivers move
-        events to the compositor *and* keeps QCursor.pos() live (some X11
-        WMs). On Wayland we never enter this path because we force manual
-        dragging.
-        """
-        if not (self._dragging and self._system_drag_started_t_ms and not self._manual_dragging):
-            return
-        cursor_pos = QCursor.pos()
-        if cursor_pos == self._last_cursor_pos:
-            return
-        dx = cursor_pos.x() - self._last_cursor_pos.x()
-        self._last_cursor_pos = cursor_pos
-        self._last_move_t_ms = int(time.monotonic() * 1000)
-        self._update_drag_state(dx)
-
     def _on_drag_idle(self) -> None:
         # Defensive: also disarm any pending long-press so a stale timer can't
         # promote a press into a drag after the gesture has already ended.
@@ -728,12 +658,15 @@ class PetWindow(QWidget):
         self._armed = False
         if not self._dragging:
             return
+        if QApplication.mouseButtons() & Qt.LeftButton:
+            self._drag_dx_accum = 0
+            self._manual_dragging = True
+            self._drag_idle_timer.start()
+            return
         self._dragging = False
         self._manual_dragging = False
-        self._system_drag_started_t_ms = 0
         self._drag_dx_accum = 0
         self._drag_idle_timer.stop()
-        self._drag_poll_timer.stop()
         self.drag_state = None
         self._sync_anim()
         self._restart_timer()
@@ -767,6 +700,7 @@ class PetWindow(QWidget):
         # Right-click → show a small menu so quitting is an explicit choice
         # rather than an accidental side-effect of clicking the pet.
         menu = QMenu(self)
+        self._make_non_activating(menu)
         quit_action = menu.addAction("Exit")
         chosen = menu.exec(ev.globalPos())
         if chosen is quit_action:

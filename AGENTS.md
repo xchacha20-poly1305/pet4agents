@@ -42,8 +42,9 @@ The closed-loop model means terminal-feeling events (`Notification`, `Permission
 
 The drag code is more complex than it looks because compositors disagree:
 
-- **Native Wayland (`xdg_toplevel.move`)** grabs the pointer for the duration of a drag — the app receives **no** move/release events. So `pet_event.py:spawn_daemon` forces `QT_QPA_PLATFORM=xcb` whenever `DISPLAY` is set, falling through to native Wayland only if the user explicitly sets `CLAUDE_PET_QPA_PLATFORM=wayland`.
-- Even on X11, some WMs deliver `moveEvent` to the window mid-drag while others don't. The daemon runs **two** fallbacks: a `_drag_idle_timer` watchdog (220ms with no move = drag ended) and a `_drag_poll_timer` (~30Hz `QCursor.pos()` sample) so the running direction updates even when the compositor swallows events.
+- The pet must respond to left/right clicks and dragging without taking focus from the terminal. `PetWindow._init_window` uses `WindowDoesNotAcceptFocus`, `WA_ShowWithoutActivating`, `WA_X11DoNotAcceptFocus`, `NoFocus`, and `BypassWindowManagerHint`; keep any popup/menu widgets on the same non-activating path.
+- Dragging is deliberately client-side (`move()` from mouse events), not `windowHandle().startSystemMove()`. WM-managed moves can activate/focus the window on click and break the no-focus guarantee.
+- The `_drag_idle_timer` watchdog checks button state after 220ms without movement: if left is still down, the drag session stays alive and can resume without changing animation; if not, drag cleanup runs.
 - `_update_drag_state` accumulates dx until it crosses `DRAG_VEL_THRESHOLD` (4px) and resets the accumulator on sign reversal — **don't** call `_restart_timer()` from there; it would reset `frame_index` and starve the animation while the cursor moves.
 
 When changing drag logic, set `CCPET_DEBUG=1` in the daemon's environment to get verbose drag logs in `event.log`.
