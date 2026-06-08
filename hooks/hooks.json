@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py SessionStart",
+            "command": "PET4CLAUDE_AGENT=claude \"${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py\" SessionStart",
             "timeout": 300,
             "async": true
           }
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py SessionEnd",
+            "command": "PET4CLAUDE_AGENT=claude \"${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py\" SessionEnd",
             "timeout": 5,
             "async": true
           }
@@ -30,7 +30,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py UserPromptSubmit",
+            "command": "PET4CLAUDE_AGENT=claude \"${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py\" UserPromptSubmit",
             "timeout": 5,
             "async": true
           }
@@ -42,7 +42,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py PreToolUse",
+            "command": "PET4CLAUDE_AGENT=claude \"${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py\" PreToolUse",
             "timeout": 5,
             "async": true
           }
@@ -54,7 +54,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py PostToolUse",
+            "command": "PET4CLAUDE_AGENT=claude \"${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py\" PostToolUse",
             "timeout": 5,
             "async": true
           }
@@ -66,7 +66,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py Stop",
+            "command": "PET4CLAUDE_AGENT=claude \"${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py\" Stop",
             "timeout": 5,
             "async": true
           }
@@ -78,7 +78,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py SubagentStop",
+            "command": "PET4CLAUDE_AGENT=claude \"${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py\" SubagentStop",
             "timeout": 5,
             "async": true
           }
@@ -90,7 +90,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py Notification",
+            "command": "PET4CLAUDE_AGENT=claude \"${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py\" Notification",
             "timeout": 5,
             "async": true
           }
@@ -102,7 +102,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py PermissionRequest",
+            "command": "PET4CLAUDE_AGENT=claude \"${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py\" PermissionRequest",
             "timeout": 5,
             "async": true
           }
@@ -114,7 +114,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py PostToolUseFailure",
+            "command": "PET4CLAUDE_AGENT=claude \"${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py\" PostToolUseFailure",
             "timeout": 5,
             "async": true
           }
@@ -126,7 +126,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py PermissionDenied",
+            "command": "PET4CLAUDE_AGENT=claude \"${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py\" PermissionDenied",
             "timeout": 5,
             "async": true
           }
@@ -138,7 +138,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py SubagentStart",
+            "command": "PET4CLAUDE_AGENT=claude \"${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py\" SubagentStart",
             "timeout": 5,
             "async": true
           }
@@ -150,7 +150,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py TaskCreated",
+            "command": "PET4CLAUDE_AGENT=claude \"${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py\" TaskCreated",
             "timeout": 5,
             "async": true
           }
@@ -162,7 +162,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py TaskCompleted",
+            "command": "PET4CLAUDE_AGENT=claude \"${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py\" TaskCompleted",
             "timeout": 5,
             "async": true
           }
@@ -174,7 +174,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py StopFailure",
+            "command": "PET4CLAUDE_AGENT=claude \"${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py\" StopFailure",
             "timeout": 5,
             "async": true
           }
@@ -186,7 +186,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py PreCompact",
+            "command": "PET4CLAUDE_AGENT=claude \"${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py\" PreCompact",
             "timeout": 5,
             "async": true
           }
@@ -198,7 +198,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py PostCompact",
+            "command": "PET4CLAUDE_AGENT=claude \"${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py\" PostCompact",
             "timeout": 5,
             "async": true
           }
@@ -210,7 +210,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py Elicitation",
+            "command": "PET4CLAUDE_AGENT=claude \"${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py\" Elicitation",
             "timeout": 5,
             "async": true
           }
@@ -222,7 +222,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py ElicitationResult",
+            "command": "PET4CLAUDE_AGENT=claude \"${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py\" ElicitationResult",
             "timeout": 5,
             "async": true
           }

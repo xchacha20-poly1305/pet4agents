@@ -216,9 +216,10 @@ def send_to_daemon(payload: dict, timeout: float = 1.0) -> bool:
 # `os.getppid()` alone isn't always the agent — hooks may run via a
 # shell wrapper that exits as soon as the hook returns, which would make the
 # daemon think the session died immediately. So we walk up the /proc tree
-# until we find an ancestor whose comm/argv[0] looks like Claude or Codex, and use
-# that PID. Falls back to getppid() when /proc isn't available or no
-# matching ancestor is found.
+# until we find an ancestor whose comm/argv[0] looks like Claude or Codex.
+# If no reliable ancestor is found, return parent_pid=0 so the daemon will not
+# use a short-lived shell wrapper for liveness. Agent type can still be inferred
+# from an explicit hook command marker or hook-specific environment variables.
 
 AGENT_PROCESS_NAMES = {"claude", "codex"}
 
@@ -226,7 +227,7 @@ AGENT_PROCESS_NAMES = {"claude", "codex"}
 def _agent_name(pid: int) -> str:
     """Return the agent name ("claude"|"codex") if pid is a supported agent binary, else "".
 
-    Matches on `comm` (kernel-truncated executable basename) and on argv[0]'s
+    Matches on `comm` (kernel-truncated executable basename) and argv[0]'s
     basename. This keeps us from matching shell wrappers whose cmdline merely
     references paths under `~/.claude/` or `~/.codex/`.
     """
@@ -237,10 +238,13 @@ def _agent_name(pid: int) -> str:
     except OSError:
         pass
     try:
-        cmdline = Path(f"/proc/{pid}/cmdline").read_bytes()
-        argv0 = cmdline.split(b"\x00", 1)[0]
-        if argv0:
-            name = Path(argv0.decode("utf-8", "replace")).name.lower()
+        argv = [
+            part.decode("utf-8", "replace")
+            for part in Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\x00")
+            if part
+        ]
+        if argv:
+            name = Path(argv[0]).name.lower()
             # Strip a trailing .exe defensively for unusual wrapper builds.
             if name.endswith(".exe"):
                 name = name[:-4]
@@ -267,17 +271,30 @@ def _read_ppid(pid: int) -> int:
     return 0
 
 
+def _infer_agent_type_from_env() -> str:
+    """Infer the hook source without claiming a reliable liveness PID."""
+    explicit = os.environ.get("PET4CLAUDE_AGENT", "").strip().lower()
+    if explicit in AGENT_PROCESS_NAMES:
+        return explicit
+    # Codex intentionally injects CLAUDE_PLUGIN_ROOT for compatibility with
+    # Claude plugins, so PLUGIN_ROOT must win when both are present.
+    if os.environ.get("PLUGIN_ROOT"):
+        return "codex"
+    if os.environ.get("CLAUDE_PLUGIN_ROOT"):
+        return "claude"
+    return ""
+
+
 def find_agent_info() -> tuple[int, str]:
     """Walk up the process tree to find the Claude Code or Codex process.
 
     Returns (pid, agent_type) where agent_type is "claude"|"codex"|"".
-    Falls back to (os.getppid(), "") if no agent ancestor is found or if /proc
-    isn't available (non-Linux / containers without procfs)."""
-    fallback = os.getppid()
+    Returns (0, inferred_agent_type) if no reliable liveness PID is found."""
+    fallback_agent_type = _infer_agent_type_from_env()
     try:
         if not Path("/proc").exists():
-            return fallback, ""
-        pid = fallback
+            return 0, fallback_agent_type
+        pid = os.getppid()
         seen: set[int] = set()
         # Cap iterations to defend against hostile /proc edits — process trees
         # in practice are well under 64 deep.
@@ -294,7 +311,7 @@ def find_agent_info() -> tuple[int, str]:
             pid = ppid
     except Exception:
         pass
-    return fallback, ""
+    return 0, fallback_agent_type
 
 
 def find_agent_pid() -> int:
