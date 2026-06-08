@@ -6,8 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py SessionStart",
-            "timeout": 300
+            "command": "${PLUGIN_ROOT}/scripts/pet_event.py SessionStart",
+            "timeout": 5
           }
         ]
       }
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py UserPromptSubmit",
+            "command": "${PLUGIN_ROOT}/scripts/pet_event.py UserPromptSubmit",
             "timeout": 5
           }
         ]
@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py PreToolUse",
+            "command": "${PLUGIN_ROOT}/scripts/pet_event.py PreToolUse",
             "timeout": 5
           }
         ]
@@ -39,7 +39,51 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py PostToolUse",
+            "command": "${PLUGIN_ROOT}/scripts/pet_event.py PostToolUse",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${PLUGIN_ROOT}/scripts/pet_event.py PreCompact",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${PLUGIN_ROOT}/scripts/pet_event.py PostCompact",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${PLUGIN_ROOT}/scripts/pet_event.py SubagentStart",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${PLUGIN_ROOT}/scripts/pet_event.py SubagentStop",
             "timeout": 5
           }
         ]
@@ -50,7 +94,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py Stop",
+            "command": "${PLUGIN_ROOT}/scripts/pet_event.py Stop",
             "timeout": 5
           }
         ]
@@ -61,7 +105,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py PermissionRequest",
+            "command": "${PLUGIN_ROOT}/scripts/pet_event.py PermissionRequest",
             "timeout": 5
           }
         ]

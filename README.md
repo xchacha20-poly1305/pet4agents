@@ -52,9 +52,10 @@ Then trust the hooks in TUI: run `/hooks`, enter each hook, then press `t` to tr
 
 #### Behavior difference
 
-In Codex, some behaviors may different.
+Codex hook support is narrower than Claude Code's hook support.
 
-- The pet will be delayed to display after sending your first request, not on program starting.
+- The pet may appear after the first `SessionStart` hook for a thread, rather than when the `codex` process itself starts.
+- Codex does not currently provide a clean `SessionEnd` hook. With `stay_even_no_session: false`, the daemon exits after it observes that the owning Codex process has gone away.
 
 ## Behavior
 
@@ -74,7 +75,8 @@ In Codex, some behaviors may different.
 | `SubagentStart`        | review once                  |
 | `TaskCreated`          | review once                  |
 | `TaskCompleted`        | jump once                    |
-| `Stop` / `SubagentStop`| jump once → idle             |
+| `Stop`                 | jump once → idle             |
+| `SubagentStop`         | jump once                    |
 | `StopFailure`          | failed once → idle           |
 | `SessionEnd`           | wave once → quit if no other sessions remain (override with `stay_even_no_session`) |
 | Drag                   | running-right / running-left / jumping based on motion |

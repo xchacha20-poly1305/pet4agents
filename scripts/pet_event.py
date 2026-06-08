@@ -7,14 +7,16 @@ Usage:
     pet_event.py daemon-stop          # quit the daemon
     pet_event.py set-pet <pet-id>     # switch the active pet
     pet_event.py daemon-spawn         # internal: start daemon (called via fork)
+    pet_event.py daemon-spawn-event   # internal: background startup + event
 
 Reads hook JSON from stdin, sends a one-line JSON message to the daemon over a
 Unix socket. If the daemon socket doesn't exist and the event is SessionStart,
-spawns the daemon detached. All errors are swallowed (logged to event.log) so
-hooks never block the coding agent.
+spawns a detached worker to start the daemon and replay that event. All errors
+are swallowed (logged to event.log) so hooks never block the coding agent.
 """
 from __future__ import annotations
 
+import base64
 import json
 import os
 import shutil
@@ -205,11 +207,11 @@ def send_to_daemon(payload: dict, timeout: float = 1.0) -> bool:
 
 # ------------------------- Agent PID discovery -------------------------
 #
-# When a session ends "cleanly" the agent fires the SessionEnd hook, which
-# tells the daemon to drain the session. But if the agent crashes / is
-# SIGKILL'd / the terminal is closed, no SessionEnd ever lands. To recover,
-# we ship the agent PID along with each event so the daemon can poll
-# liveness and treat a dead PID as an implicit SessionEnd.
+# When a Claude session ends cleanly, Claude fires the SessionEnd hook, which
+# tells the daemon to drain the session. Codex currently has no SessionEnd
+# hook, and either agent may crash / be SIGKILL'd / have its terminal closed.
+# To recover, we ship the agent PID along with each event so the daemon can
+# poll liveness and treat a dead PID as an implicit SessionEnd.
 #
 # `os.getppid()` alone isn't always the agent — hooks may run via a
 # shell wrapper that exits as soon as the hook returns, which would make the
@@ -332,6 +334,58 @@ def spawn_daemon() -> None:
         _log(f"spawn_daemon failed: {e}\n{traceback.format_exc()}")
 
 
+def spawn_daemon_event_worker(payload: dict) -> None:
+    """Start a detached worker that can take its time installing deps.
+
+    Codex currently runs command hooks synchronously and skips `async: true`
+    handlers, so the foreground hook must not spend minutes creating the venv
+    or downloading PySide6. The worker re-enters this script, performs the
+    heavy setup, starts the daemon, then delivers the original SessionStart.
+    """
+    try:
+        config.ensure_dirs()
+        encoded = base64.urlsafe_b64encode(
+            json.dumps(payload).encode("utf-8")
+        ).decode("ascii")
+        log_f = config.LOG_PATH.open("a", encoding="utf-8")
+        subprocess.Popen(
+            [
+                sys.executable,
+                os.path.abspath(__file__),
+                "daemon-spawn-event",
+                encoded,
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=log_f,
+            stderr=log_f,
+            start_new_session=True,
+            close_fds=True,
+            env=os.environ.copy(),
+        )
+        _log("spawned daemon event worker")
+    except Exception as e:
+        _log(f"spawn_daemon_event_worker failed: {e}\n{traceback.format_exc()}")
+
+
+def cmd_daemon_spawn_event(encoded_payload: str) -> None:
+    """Internal detached worker: ensure daemon exists, then send one event."""
+    try:
+        payload = json.loads(
+            base64.urlsafe_b64decode(encoded_payload.encode("ascii")).decode("utf-8")
+        )
+    except Exception as e:
+        _log(f"daemon-spawn-event payload decode failed: {e}")
+        return
+
+    ensure_venv_and_reexec()
+    spawn_daemon()
+    for _ in range(120):
+        time.sleep(0.1)
+        if send_to_daemon(payload):
+            return
+    _log("daemon did not come up in time after background spawn")
+
+
 def cmd_event(event_name: str) -> None:
     """Forward a hook event to the daemon."""
     raw = ""
@@ -365,14 +419,7 @@ def cmd_event(event_name: str) -> None:
     if not ok:
         # Daemon not running. Spawn on SessionStart; otherwise stay silent.
         if event_name == "SessionStart":
-            spawn_daemon()
-            # Give the daemon a moment to bind the socket, then deliver the event.
-            for _ in range(20):
-                time.sleep(0.1)
-                if send_to_daemon(payload):
-                    break
-            else:
-                _log("daemon did not come up in time after spawn")
+            spawn_daemon_event_worker(payload)
         else:
             _log(f"daemon not running, skipping event={event_name}")
 
@@ -420,12 +467,15 @@ def main() -> int:
             return 1
         cmd_set_pet(args[1])
         return 0
-
-    # All other subcommands need PySide6 (the daemon does the rendering, but
-    # SessionStart needs to spawn it, so we ensure venv exists first).
-    ensure_venv_and_reexec()
+    if sub == "daemon-spawn-event":
+        if len(args) < 2:
+            _log("usage: pet_event.py daemon-spawn-event <base64-json-payload>")
+            return 1
+        cmd_daemon_spawn_event(args[1])
+        return 0
 
     if sub == "daemon-spawn":
+        ensure_venv_and_reexec()
         spawn_daemon()
         return 0
 
