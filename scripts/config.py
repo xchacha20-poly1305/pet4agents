@@ -123,6 +123,7 @@ LOG_PATH = STATE_DIR / "event.log"
 INSTALL_LOG_PATH = STATE_DIR / "install.log"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 WINDOW_STATE_PATH = CONFIG_DIR / "state.json"
+VENV_STATE_PATH = VENV_DIR / ".pet-runtime.json"
 
 # --- Pet discovery roots ---
 CODEX_PETS_DIR = HOME / ".codex/pets"
@@ -132,6 +133,34 @@ PLUGIN_ROOT = Path(
     or Path(__file__).resolve().parent.parent
 )
 PLUGIN_PETS_DIR = PLUGIN_ROOT / "pets"
+
+# --- Managed Python runtime ---
+#
+# The daemon always runs inside a private venv that the hook relay provisions on
+# demand. Keep the pinned dependency set here so install/update policy is shared
+# between the hook process and any future tooling.
+PINNED_PYTHON_DEPENDENCIES: tuple[str, ...] = (
+    "PySide6==6.11.1",
+)
+UV_LOCKFILE_PATH = PLUGIN_ROOT / "requirements-uv.lock.txt"
+
+
+def _load_plugin_manifest_version() -> str:
+    for rel in (".codex-plugin/plugin.json", ".claude-plugin/plugin.json"):
+        path = PLUGIN_ROOT / rel
+        if not path.exists():
+            continue
+        try:
+            data = json.loads(path.read_text("utf-8"))
+        except Exception:
+            continue
+        version = data.get("version")
+        if isinstance(version, str) and version.strip():
+            return version.strip()
+    return "0"
+
+
+PLUGIN_VERSION = _load_plugin_manifest_version()
 
 
 def ensure_dirs() -> None:

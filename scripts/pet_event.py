@@ -17,6 +17,7 @@ are swallowed (logged to event.log) so hooks never block the coding agent.
 from __future__ import annotations
 
 import base64
+import importlib.metadata
 import json
 import os
 import shutil
@@ -58,13 +59,107 @@ def in_pet_venv() -> bool:
         return False
 
 
+def expected_runtime_state() -> dict:
+    state = {
+        "plugin_version": config.PLUGIN_VERSION,
+        "dependencies": list(config.PINNED_PYTHON_DEPENDENCIES),
+    }
+    if config.UV_LOCKFILE_PATH.exists():
+        try:
+            state["uv_lock_sha256"] = _sha256_file(config.UV_LOCKFILE_PATH)
+        except Exception:
+            pass
+    return state
+
+
+def load_runtime_state() -> dict:
+    try:
+        if config.VENV_STATE_PATH.exists():
+            data = json.loads(config.VENV_STATE_PATH.read_text("utf-8"))
+            if isinstance(data, dict):
+                return data
+    except Exception:
+        pass
+    return {}
+
+
+def write_runtime_state() -> None:
+    try:
+        config.VENV_STATE_PATH.write_text(
+            json.dumps(expected_runtime_state(), indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+    except Exception as e:
+        _log_install(f"failed to write runtime state: {e}")
+
+
+def _sha256_file(path: Path) -> str:
+    import hashlib
+
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _installed_distribution_version(name: str) -> str:
+    try:
+        return importlib.metadata.version(name)
+    except importlib.metadata.PackageNotFoundError:
+        return ""
+    except Exception:
+        return ""
+
+
+def venv_matches_expected_runtime() -> bool:
+    state = load_runtime_state()
+    if state != expected_runtime_state():
+        return False
+
+    for spec in config.PINNED_PYTHON_DEPENDENCIES:
+        if "==" not in spec:
+            return False
+        name, version = spec.split("==", 1)
+        if _installed_distribution_version(name.strip()) != version.strip():
+            return False
+    return True
+
+
+def _best_effort_stop_existing_daemon() -> None:
+    try:
+        if send_to_daemon({"kind": "quit"}, timeout=0.5):
+            time.sleep(0.2)
+    except Exception:
+        pass
+
+
+def _reset_managed_venv() -> None:
+    _best_effort_stop_existing_daemon()
+    try:
+        if config.VENV_DIR.exists():
+            shutil.rmtree(config.VENV_DIR)
+    except Exception as e:
+        _log_install(f"failed to remove old venv: {e}")
+
+
 def venv_has_pyside6() -> bool:
     """Check whether PySide6 is importable in the managed venv."""
     if not config.VENV_PY.exists():
         return False
     try:
         r = subprocess.run(
-            [str(config.VENV_PY), "-c", "import PySide6"],
+            [
+                str(config.VENV_PY),
+                "-c",
+                (
+                    "import sys; "
+                    "sys.path.insert(0, %r); "
+                    "import pet_event; "
+                    "raise SystemExit(0 if pet_event.venv_matches_expected_runtime() else 1)"
+                )
+                % str(Path(__file__).resolve().parent),
+            ],
             capture_output=True,
             timeout=10,
         )
@@ -114,20 +209,27 @@ def _create_venv_with_stdlib() -> bool:
 
 def _install_pyside6_with_uv(uv: str) -> bool:
     """Install PySide6 into the managed venv via uv. Returns True on success."""
-    _log_install("installing PySide6 via uv (this may take a while)")
+    if not config.UV_LOCKFILE_PATH.exists():
+        _log_install(f"uv lockfile missing: {config.UV_LOCKFILE_PATH}")
+        return False
+    _log_install(
+        "installing pinned deps via uv with hashes from "
+        + str(config.UV_LOCKFILE_PATH)
+    )
     try:
         r = subprocess.run(
             [
                 uv, "pip", "install",
                 "--python", str(config.VENV_PY),
                 "--quiet",
-                "PySide6",
+                "--require-hashes",
+                "-r", str(config.UV_LOCKFILE_PATH),
             ],
             capture_output=True,
             timeout=600,
         )
         if r.returncode == 0:
-            _log_install("PySide6 installed successfully (via uv)")
+            _log_install("pinned deps installed successfully (via uv)")
             return True
         _log_install("uv pip install failed: " + r.stderr.decode("utf-8", "replace"))
     except Exception as e:
@@ -137,14 +239,21 @@ def _install_pyside6_with_uv(uv: str) -> bool:
 
 def _install_pyside6_with_pip() -> bool:
     """Install PySide6 into the managed venv via the venv's own pip."""
-    _log_install("installing PySide6 via pip (this may take a while)")
+    if not config.UV_LOCKFILE_PATH.exists():
+        _log_install(f"pip lockfile missing: {config.UV_LOCKFILE_PATH}")
+        return False
+    _log_install(
+        "installing pinned deps via pip with hashes from "
+        + str(config.UV_LOCKFILE_PATH)
+    )
     try:
         r = subprocess.run(
             [
                 str(config.VENV_PY),
                 "-m", "pip", "install",
                 "--quiet", "--disable-pip-version-check",
-                "PySide6",
+                "--require-hashes",
+                "-r", str(config.UV_LOCKFILE_PATH),
             ],
             capture_output=True,
             timeout=600,
@@ -152,7 +261,7 @@ def _install_pyside6_with_pip() -> bool:
         if r.returncode != 0:
             _log_install("pip install failed: " + r.stderr.decode("utf-8", "replace"))
             return False
-        _log_install("PySide6 installed successfully")
+        _log_install("pinned deps installed successfully")
         return True
     except Exception as e:
         _log_install(f"pip install exception: {e}")
@@ -160,7 +269,7 @@ def _install_pyside6_with_pip() -> bool:
 
 
 def install_venv() -> bool:
-    """Create the venv and install PySide6. Returns True on success.
+    """Create the venv and install pinned deps. Returns True on success.
 
     Prefers `uv` when available (it's much faster) and falls back to the
     stdlib `venv` module + `pip` otherwise. The fallback is independent
@@ -176,8 +285,12 @@ def install_venv() -> bool:
             return False
 
     if uv and _install_pyside6_with_uv(uv):
+        write_runtime_state()
         return True
-    return _install_pyside6_with_pip()
+    ok = _install_pyside6_with_pip()
+    if ok:
+        write_runtime_state()
+    return ok
 
 
 def ensure_venv_and_reexec() -> None:
@@ -185,6 +298,11 @@ def ensure_venv_and_reexec() -> None:
     if in_pet_venv():
         return
     if not venv_has_pyside6():
+        if config.VENV_DIR.exists():
+            _log_install(
+                "managed venv missing expected pinned runtime; recreating it"
+            )
+            _reset_managed_venv()
         if not install_venv():
             _log("venv install failed; bailing out")
             sys.exit(0)

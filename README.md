@@ -9,11 +9,11 @@ A Linux desktop pet plugin for [Claude Code](https://claude.com/claude-code) and
 ## Requirements
 
 - Linux (X11 or native Wayland)
-- Python 3.9+ available as `python3` (pip / venv module included)
+- Python 3.10+ available as `python3` (pip / venv module included)
 - A working desktop session (`DISPLAY` or `WAYLAND_DISPLAY`)
 - A Codex-format pet at `~/.codex/pets/<pet-id>/` (`pet.json` + `spritesheet.webp` or `spritesheet.png`)
 
-PySide6 is auto-installed into a private venv at `~/.local/share/claude-code-pet/venv/` on first hook fire (~60 MB download, one-time).
+PySide6 `6.11.1` is auto-installed into a private venv at `~/.local/share/claude-code-pet/venv/` on first hook fire (~60 MB download, one-time). Both the preferred `uv` path and the stdlib `venv` + `pip` fallback install from the repo's hash-pinned `requirements-uv.lock.txt`. The plugin records the expected runtime state there; if a later plugin update changes the pinned dependency set, the lockfile content, or the plugin version, the next `SessionStart` rebuilds that venv before starting the daemon.
 
 ## Install
 
@@ -120,6 +120,7 @@ Hook source detection uses the plugin's own `PET4CLAUDE_AGENT` command marker pl
 ## Files / directories used
 
 - venv: `~/.local/share/claude-code-pet/venv/`
+- venv runtime state: `~/.local/share/claude-code-pet/venv/.pet-runtime.json`
 - config: `~/.config/claude-code-pet/config.json`
 - window position: `~/.config/claude-code-pet/state.json`
 - runtime socket: `${XDG_RUNTIME_DIR:-/tmp}/claude-code-pet.sock`
