@@ -1,5 +1,4 @@
 {
-  "description": "Forward Codex-supported lifecycle events to the pet daemon.",
   "hooks": {
     "SessionStart": [
       {

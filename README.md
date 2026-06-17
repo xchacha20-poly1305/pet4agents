@@ -56,6 +56,7 @@ Codex hook support is narrower than Claude Code's hook support.
 
 - The pet may appear after the first `SessionStart` hook for a thread, rather than when the `codex` process itself starts.
 - Codex does not currently provide a clean `SessionEnd` hook. With `stay_even_no_session: false`, the daemon exits after it observes that the owning Codex process has gone away.
+- Hook config schema differs too: Claude's `hooks/hooks.json` may include a top-level `description`, but Codex's `hooks/codex-hooks.json` must contain only the top-level `hooks` key.
 
 ## Behavior
 
