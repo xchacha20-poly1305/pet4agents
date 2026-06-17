@@ -31,6 +31,12 @@ Then you can install it:
 claude plugin install pet4claude@anrong-plugins
 ```
 
+Update the plugin:
+
+```shell
+claude plugin update pet4claude@anrong-plugins
+```
+
 ### Codex
 
 Add my plugin marketplace if not have:
@@ -39,7 +45,13 @@ Add my plugin marketplace if not have:
 codex plugin marketplace add https://codeberg.org/xchacha20-poly1305/cc-plugin.git
 ```
 
-Codex has no `plugin install` CLI subcommand — install through the TUI: launch `codex`, run `/plugins`, pick `pet4claude@anrong-plugins`, and confirm.
+Install the plugin:
+
+```shell
+codex plugin add pet4claude@anrong-plugins
+```
+
+You can also install it from the TUI: launch `codex`, run `/plugins`, pick `pet4claude@anrong-plugins`, and confirm.
 
 Enable `plugin_hooks` feature in `~/.codex/config.toml`:
 
@@ -49,6 +61,12 @@ plugin_hooks = true
 ```
 
 Then trust the hooks in TUI: run `/hooks`, enter each hook, then press `t` to trust.
+
+Update after pulling new changes:
+
+```shell
+codex plugin add pet4claude@anrong-plugins
+```
 
 #### Behavior difference
 
