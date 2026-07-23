@@ -1,4 +1,4 @@
-# claude-code-pet
+# pet4agents
 
 A Linux desktop pet plugin for [Claude Code](https://claude.com/claude-code) and Codex CLI, reusing the Codex pet format. The pet sits on top of your desktop, runs while the agent works, jumps when work completes, waves when permission is requested, and can be dragged around.
 
@@ -13,28 +13,28 @@ A Linux desktop pet plugin for [Claude Code](https://claude.com/claude-code) and
 - A working desktop session (`DISPLAY` or `WAYLAND_DISPLAY`)
 - A Codex-format pet at `~/.codex/pets/<pet-id>/` (`pet.json` + `spritesheet.webp` or `spritesheet.png`)
 
-PySide6 `6.11.1` is auto-installed into a private venv at `~/.local/share/claude-code-pet/venv/` on first hook fire (~60 MB download, one-time). Both the preferred `uv` path and the stdlib `venv` + `pip` fallback install from the repo's hash-pinned `requirements-uv.lock.txt`. The plugin records the expected runtime state there; if a later plugin update changes the pinned dependency set, the lockfile content, or the plugin version, the next `SessionStart` rebuilds that venv before starting the daemon.
+PySide6 `6.11.1` is auto-installed into a private venv at `~/.local/share/pet4agents/venv/` on first hook fire (~60 MB download, one-time). Both the preferred `uv` path and the stdlib `venv` + `pip` fallback install from the repo's hash-pinned `requirements-uv.lock.txt`. The plugin records the expected runtime state there; if a later plugin update changes the pinned dependency set, the lockfile content, or the plugin version, the next `SessionStart` rebuilds that venv before starting the daemon.
 
 ## Install
 
 ### Claude Code
 
-If you didn't add [my plugin marketplace](https://codeberg.org/xchacha20-poly1305/cc-plugin), add it first.
+If you didn't add [my plugin marketplace](https://github.com/xchacha20-poly1305/agent-plugins), add it first.
 
 ```shell
-claude plugin marketplace add https://codeberg.org/xchacha20-poly1305/cc-plugin.git
+claude plugin marketplace add https://github.com/xchacha20-poly1305/agent-plugins.git
 ```
 
 Then you can install it:
 
 ```shell
-claude plugin install pet4claude@anrong-plugins
+claude plugin install pet4agents@anrong-plugins
 ```
 
 Update the plugin:
 
 ```shell
-claude plugin update pet4claude@anrong-plugins
+claude plugin update pet4agents@anrong-plugins
 ```
 
 ### Codex
@@ -42,16 +42,16 @@ claude plugin update pet4claude@anrong-plugins
 Add my plugin marketplace if not have:
 
 ```shell
-codex plugin marketplace add https://codeberg.org/xchacha20-poly1305/cc-plugin.git
+codex plugin marketplace add https://github.com/xchacha20-poly1305/agent-plugins.git
 ```
 
 Install the plugin:
 
 ```shell
-codex plugin add pet4claude@anrong-plugins
+codex plugin add pet4agents@anrong-plugins
 ```
 
-You can also install it from the TUI: launch `codex`, run `/plugins`, pick `pet4claude@anrong-plugins`, and confirm.
+You can also install it from the TUI: launch `codex`, run `/plugins`, pick `pet4agents@anrong-plugins`, and confirm.
 
 Enable `plugin_hooks` feature in `~/.codex/config.toml`:
 
@@ -65,7 +65,7 @@ Then trust the hooks in TUI: run `/hooks`, enter each hook, then press `t` to tr
 Update after pulling new changes:
 
 ```shell
-codex plugin add pet4claude@anrong-plugins
+codex plugin add pet4agents@anrong-plugins
 ```
 
 #### Behavior difference
@@ -107,7 +107,7 @@ Codex hook support is narrower than Claude Code's hook support.
 
 ## Config
 
-`~/.config/claude-code-pet/config.json`:
+`~/.config/pet4agents/config.json`:
 
 ```json
 {
@@ -133,24 +133,24 @@ Codex hook support is narrower than Claude Code's hook support.
 
 Override the pet via env var: `CLAUDE_PET_ID=<id>` or `CODEX_PET_ID=<id>`.
 
-Hook source detection uses the plugin's own `PET4CLAUDE_AGENT` command marker plus a process-tree liveness probe. `CLAUDE_PLUGIN_ROOT` alone is not treated as proof of Claude Code, because Codex also sets it for compatibility with Claude plugins.
+Hook source detection uses the plugin's own `PET4AGENTS_AGENT` command marker plus a process-tree liveness probe. `CLAUDE_PLUGIN_ROOT` alone is not treated as proof of Claude Code, because Codex also sets it for compatibility with Claude plugins.
 
 ## Files / directories used
 
-- venv: `~/.local/share/claude-code-pet/venv/`
-- venv runtime state: `~/.local/share/claude-code-pet/venv/.pet-runtime.json`
-- config: `~/.config/claude-code-pet/config.json`
-- window position: `~/.config/claude-code-pet/state.json`
-- runtime socket: `${XDG_RUNTIME_DIR:-/tmp}/claude-code-pet.sock`
-- log: `~/.local/state/claude-code-pet/event.log`
+- venv: `~/.local/share/pet4agents/venv/`
+- venv runtime state: `~/.local/share/pet4agents/venv/.pet-runtime.json`
+- config: `~/.config/pet4agents/config.json`
+- window position: `~/.config/pet4agents/state.json`
+- runtime socket: `${XDG_RUNTIME_DIR:-/tmp}/pet4agents.sock`
+- log: `~/.local/state/pet4agents/event.log`
 
 ## Uninstall
 
 Remove the daemon's runtime files (venv, config, state, socket):
 
 ```bash
-rm -rf ~/.local/share/claude-code-pet ~/.config/claude-code-pet ~/.local/state/claude-code-pet
-rm -f "${XDG_RUNTIME_DIR:-/tmp}/claude-code-pet.sock"
+rm -rf ~/.local/share/pet4agents ~/.config/pet4agents ~/.local/state/pet4agents
+rm -f "${XDG_RUNTIME_DIR:-/tmp}/pet4agents.sock"
 ```
 
 Then remove the plugin from each agent that had it installed.
@@ -158,18 +158,18 @@ Then remove the plugin from each agent that had it installed.
 ### Claude Code
 
 ```shell
-claude plugin uninstall pet4claude@anrong-plugins
+claude plugin uninstall pet4agents@anrong-plugins
 ```
 
 ### Codex CLI
 
 Codex has no `plugin uninstall` CLI subcommand (`codex plugin marketplace remove` only drops a marketplace, not an installed plugin). Uninstall it from the TUI's `/plugins` popup, or do it by hand:
 
-1. Delete the `[plugins."pet4claude@anrong-plugins"]` block from `~/.codex/config.toml`.
+1. Delete the `[plugins."pet4agents@anrong-plugins"]` block from `~/.codex/config.toml`.
 2. Drop the cached plugin source:
 
    ```shell
-   rm -rf ~/.codex/plugins/cache/anrong-plugins/pet4claude
+   rm -rf ~/.codex/plugins/cache/anrong-plugins/pet4agents
    ```
 
 # Privacy Policy

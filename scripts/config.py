@@ -1,4 +1,4 @@
-"""Shared constants for claude-code-pet."""
+"""Shared constants for pet4agents."""
 from __future__ import annotations
 
 import json
@@ -112,18 +112,39 @@ XDG_DATA = _xdg("XDG_DATA_HOME", HOME / ".local/share")
 XDG_STATE = _xdg("XDG_STATE_HOME", HOME / ".local/state")
 XDG_RUNTIME = _xdg("XDG_RUNTIME_DIR", Path("/tmp"))
 
-CONFIG_DIR = XDG_CONFIG / "claude-code-pet"
-DATA_DIR = XDG_DATA / "claude-code-pet"
-STATE_DIR = XDG_STATE / "claude-code-pet"
+CONFIG_DIR = XDG_CONFIG / "pet4agents"
+DATA_DIR = XDG_DATA / "pet4agents"
+STATE_DIR = XDG_STATE / "pet4agents"
 VENV_DIR = DATA_DIR / "venv"
 VENV_PY = VENV_DIR / "bin" / "python"
-SOCKET_PATH = XDG_RUNTIME / "claude-code-pet.sock"
+SOCKET_PATH = XDG_RUNTIME / "pet4agents.sock"
+LEGACY_CONFIG_DIR = XDG_CONFIG / "claude-code-pet"
+LEGACY_DATA_DIR = XDG_DATA / "claude-code-pet"
+LEGACY_STATE_DIR = XDG_STATE / "claude-code-pet"
+LEGACY_SOCKET_PATH = XDG_RUNTIME / "claude-code-pet.sock"
 PIDFILE_PATH = STATE_DIR / "daemon.pid"
 LOG_PATH = STATE_DIR / "event.log"
 INSTALL_LOG_PATH = STATE_DIR / "install.log"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 WINDOW_STATE_PATH = CONFIG_DIR / "state.json"
 VENV_STATE_PATH = VENV_DIR / ".pet-runtime.json"
+
+
+def migrate_legacy_paths() -> None:
+    """Move old-brand state once, without overwriting newer state."""
+    for old, new in (
+        (LEGACY_CONFIG_DIR, CONFIG_DIR),
+        (LEGACY_DATA_DIR, DATA_DIR),
+        (LEGACY_STATE_DIR, STATE_DIR),
+    ):
+        if old.exists() and not new.exists():
+            try:
+                old.rename(new)
+            except OSError:
+                pass
+
+
+migrate_legacy_paths()
 
 # --- Pet discovery roots ---
 CODEX_PETS_DIR = HOME / ".codex/pets"
@@ -169,7 +190,7 @@ def ensure_dirs() -> None:
         d.mkdir(parents=True, exist_ok=True)
 
 
-# --- User config (`~/.config/claude-code-pet/config.json`) ---
+# --- User config (`~/.config/pet4agents/config.json`) ---
 #
 # The on-disk shape is a flat JSON object. Unknown keys are preserved on write
 # (see `pet_event.py:cmd_set_pet`). Defaults below are merged at read-time so

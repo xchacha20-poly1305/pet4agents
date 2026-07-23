@@ -2,20 +2,20 @@
 
 ## Overview
 
-`pet4claude` is a local-only desktop pet plugin for Claude Code and Codex CLI. It runs entirely on your machine and does not transmit any data to external servers.
+`pet4agents` is a local-only desktop pet plugin for Claude Code and Codex CLI. It runs entirely on your machine and does not transmit any data to external servers.
 
 ## Data Collection and Storage
 
 The plugin stores the following data locally on your filesystem:
 
 ### Configuration and State
-- **User configuration** (`~/.config/claude-code-pet/config.json`) — your pet selection, animation speed overrides, and daemon behavior preferences
-- **Window position** (`~/.config/claude-code-pet/state.json`) — the pet's last screen position
+- **User configuration** (`~/.config/pet4agents/config.json`) — your pet selection, animation speed overrides, and daemon behavior preferences
+- **Window position** (`~/.config/pet4agents/state.json`) — the pet's last screen position
 - **Session tracking** (in-memory only) — active Claude/Codex session IDs and process IDs, used to determine when to show/hide the pet
 
 ### Logs
-- **Event log** (`~/.local/state/claude-code-pet/event.log`) — timestamped records of hook events (SessionStart, PreToolUse, Stop, etc.) and daemon state transitions
-- **Install log** (`~/.local/state/claude-code-pet/install.log`) — Python venv setup output
+- **Event log** (`~/.local/state/pet4agents/event.log`) — timestamped records of hook events (SessionStart, PreToolUse, Stop, etc.) and daemon state transitions
+- **Install log** (`~/.local/state/pet4agents/install.log`) — Python venv setup output
 
 Logs contain:
 - Event names and timestamps
@@ -31,8 +31,8 @@ Logs **do not** contain:
 - Any personally identifiable information beyond what's in the event metadata
 
 ### Runtime Data
-- **Unix socket** (`${XDG_RUNTIME_DIR:-/tmp}/claude-code-pet.sock`) — inter-process communication between hooks and the daemon, cleared on daemon exit
-- **PID file** (`~/.local/state/claude-code-pet/daemon.pid`) — tracks the running daemon process
+- **Unix socket** (`${XDG_RUNTIME_DIR:-/tmp}/pet4agents.sock`) — inter-process communication between hooks and the daemon, cleared on daemon exit
+- **PID file** (`~/.local/state/pet4agents/daemon.pid`) — tracks the running daemon process
 
 ## Data Sharing
 
@@ -71,7 +71,7 @@ For issues or questions, see the repository's issue tracker.
 
 ## Contact
 
-Issue tracker: <https://codeberg.org/xchacha20-poly1305/pet4claude/issues>
+Issue tracker: <https://github.com/xchacha20-poly1305/pet4agents/issues>
 
 Email: <HystericalDragons@proton.me>
 

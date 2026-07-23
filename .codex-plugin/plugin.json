@@ -1,13 +1,13 @@
 {
-  "name": "pet4claude",
+  "name": "pet4agents",
   "version": "0.2.6",
   "description": "A Linux desktop pet for Claude Code and Codex CLI sessions.",
   "author": {
     "name": "anrong",
     "email": "HystericalDragons@proton.me"
   },
-  "homepage": "https://codeberg.org/xchacha20-poly1305/pet4claude",
-  "repository": "https://codeberg.org/xchacha20-poly1305/pet4claude",
+  "homepage": "https://github.com/xchacha20-poly1305/pet4agents",
+  "repository": "https://github.com/xchacha20-poly1305/pet4agents",
   "license": "MIT",
   "keywords": [
     "codex",
@@ -19,9 +19,9 @@
   ],
   "hooks": "./hooks/codex-hooks.json",
   "interface": {
-    "displayName": "Pet4Claude",
+    "displayName": "pet4agents",
     "shortDescription": "Show a desktop pet while Codex or Claude works",
-    "longDescription": "Pet4Claude runs a lightweight Linux desktop pet from Codex-format spritesheets and drives its animations from coding-agent lifecycle hooks.",
+    "longDescription": "pet4agents runs a lightweight Linux desktop pet from Codex-format spritesheets and drives its animations from coding-agent lifecycle hooks.",
     "developerName": "anrong",
     "category": "Productivity",
     "capabilities": [
@@ -29,7 +29,7 @@
       "Read",
       "Write"
     ],
-    "websiteURL": "https://codeberg.org/xchacha20-poly1305/pet4claude",
+    "websiteURL": "https://github.com/xchacha20-poly1305/pet4agents",
     "brandColor": "#D97757",
     "screenshots": [
       "./assets/screenshot.png"

@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "PET4CLAUDE_AGENT=codex \"${PLUGIN_ROOT}/scripts/pet_event.py\" SessionStart",
+            "command": "PET4AGENTS_AGENT=codex \"${PLUGIN_ROOT}/scripts/pet_event.py\" SessionStart",
             "timeout": 5
           }
         ]
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "PET4CLAUDE_AGENT=codex \"${PLUGIN_ROOT}/scripts/pet_event.py\" UserPromptSubmit",
+            "command": "PET4AGENTS_AGENT=codex \"${PLUGIN_ROOT}/scripts/pet_event.py\" UserPromptSubmit",
             "timeout": 5
           }
         ]
@@ -27,7 +27,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "PET4CLAUDE_AGENT=codex \"${PLUGIN_ROOT}/scripts/pet_event.py\" PreToolUse",
+            "command": "PET4AGENTS_AGENT=codex \"${PLUGIN_ROOT}/scripts/pet_event.py\" PreToolUse",
             "timeout": 5
           }
         ]
@@ -38,7 +38,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "PET4CLAUDE_AGENT=codex \"${PLUGIN_ROOT}/scripts/pet_event.py\" PostToolUse",
+            "command": "PET4AGENTS_AGENT=codex \"${PLUGIN_ROOT}/scripts/pet_event.py\" PostToolUse",
             "timeout": 5
           }
         ]
@@ -49,7 +49,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "PET4CLAUDE_AGENT=codex \"${PLUGIN_ROOT}/scripts/pet_event.py\" PreCompact",
+            "command": "PET4AGENTS_AGENT=codex \"${PLUGIN_ROOT}/scripts/pet_event.py\" PreCompact",
             "timeout": 5
           }
         ]
@@ -60,7 +60,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "PET4CLAUDE_AGENT=codex \"${PLUGIN_ROOT}/scripts/pet_event.py\" PostCompact",
+            "command": "PET4AGENTS_AGENT=codex \"${PLUGIN_ROOT}/scripts/pet_event.py\" PostCompact",
             "timeout": 5
           }
         ]
@@ -71,7 +71,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "PET4CLAUDE_AGENT=codex \"${PLUGIN_ROOT}/scripts/pet_event.py\" SubagentStart",
+            "command": "PET4AGENTS_AGENT=codex \"${PLUGIN_ROOT}/scripts/pet_event.py\" SubagentStart",
             "timeout": 5
           }
         ]
@@ -82,7 +82,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "PET4CLAUDE_AGENT=codex \"${PLUGIN_ROOT}/scripts/pet_event.py\" SubagentStop",
+            "command": "PET4AGENTS_AGENT=codex \"${PLUGIN_ROOT}/scripts/pet_event.py\" SubagentStop",
             "timeout": 5
           }
         ]
@@ -93,7 +93,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "PET4CLAUDE_AGENT=codex \"${PLUGIN_ROOT}/scripts/pet_event.py\" Stop",
+            "command": "PET4AGENTS_AGENT=codex \"${PLUGIN_ROOT}/scripts/pet_event.py\" Stop",
             "timeout": 5
           }
         ]
@@ -104,7 +104,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "PET4CLAUDE_AGENT=codex \"${PLUGIN_ROOT}/scripts/pet_event.py\" PermissionRequest",
+            "command": "PET4AGENTS_AGENT=codex \"${PLUGIN_ROOT}/scripts/pet_event.py\" PermissionRequest",
             "timeout": 5
           }
         ]

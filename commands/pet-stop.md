@@ -1,5 +1,5 @@
 ---
-description: Stop the claude-code-pet desktop pet daemon.
+description: Stop the pet4agents desktop pet daemon.
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/pet_event.py daemon-stop)
 ---
 

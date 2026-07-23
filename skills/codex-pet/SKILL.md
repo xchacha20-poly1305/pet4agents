@@ -1,11 +1,11 @@
 ---
 name: codex-pet
-description: Control the Pet4Claude desktop pet from Codex. Use when the user asks to stop the pet daemon, switch the active pet, or inspect pet configuration/logs.
+description: Control the pet4agents desktop pet from Codex. Use when the user asks to stop the pet daemon, switch the active pet, or inspect pet configuration/logs.
 ---
 
 # Codex Pet
 
-Pet4Claude is installed as a Codex plugin in this repository. Its hooks launch
+pet4agents is installed as a Codex plugin in this repository. Its hooks launch
 `scripts/pet_event.py`, which relays events to the long-running PySide6 daemon.
 
 ## Stop the Pet
@@ -36,5 +36,5 @@ ls -1 ~/.codex/pets/ 2>/dev/null
 
 ## Debug
 
-The primary log is `~/.local/state/claude-code-pet/event.log`. The private venv
-is `~/.local/share/claude-code-pet/venv/`.
+The primary log is `~/.local/state/pet4agents/event.log`. The private venv
+is `~/.local/share/pet4agents/venv/`.

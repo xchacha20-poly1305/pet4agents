@@ -532,7 +532,7 @@ class PetWindow(QWidget):
                 # Re-resolve after clearing oneshot.
                 name2, oneshot2 = self._active_animation()
                 self.anim.set(name2, oneshot2)
-        if os.environ.get("CCPET_DEBUG"):
+        if os.environ.get("PET4AGENTS_DEBUG"):
             _log(f"tick anim={self.anim.name} frame={self.anim.frame_index} drag={self.drag_state}")
         self._render_current_frame()
         self.timer.start(self.anim.current_duration_ms())
@@ -568,7 +568,7 @@ class PetWindow(QWidget):
         self._press_pos = ev.globalPosition().toPoint()
         self._drag_dx_accum = 0
         self._long_press_timer.start()
-        if os.environ.get("CCPET_DEBUG"):
+        if os.environ.get("PET4AGENTS_DEBUG"):
             _log("mousePress armed (waiting for long-press or drag-threshold)")
         ev.accept()
 
@@ -591,7 +591,7 @@ class PetWindow(QWidget):
         self._sync_anim()
         self._restart_timer()
         self._drag_idle_timer.start()
-        if os.environ.get("CCPET_DEBUG"):
+        if os.environ.get("PET4AGENTS_DEBUG"):
             _log("_begin_drag (long-press or drag-threshold reached)")
 
     def mouseMoveEvent(self, ev) -> None:
@@ -651,7 +651,7 @@ class PetWindow(QWidget):
             # Do NOT restart the timer here: that would reset the frame index
             # and starve the animation while the cursor moves. The next _tick
             # will pick up the new state automatically.
-            if os.environ.get("CCPET_DEBUG"):
+            if os.environ.get("PET4AGENTS_DEBUG"):
                 _log(f"_update_drag_state dx={dx} -> {new_state}")
 
     def _on_drag_idle(self) -> None:
@@ -687,7 +687,7 @@ class PetWindow(QWidget):
             self.oneshot_state = "jumping"
             self._sync_anim()
             self._restart_timer()
-            if os.environ.get("CCPET_DEBUG"):
+            if os.environ.get("PET4AGENTS_DEBUG"):
                 _log("mouseRelease: click → jumping oneshot")
             ev.accept()
             return

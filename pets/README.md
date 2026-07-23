@@ -3,7 +3,7 @@
 The desktop pet is loaded from here. Discovery priority:
 
 1. Environment variable `CLAUDE_PET_ID`
-2. `pet_id` in `~/.config/claude-code-pet/config.json` (set via `/pet-set`)
+2. `pet_id` in `~/.config/pet4agents/config.json` (set via `/pet-set`)
 3. `~/.codex/pets/<id>/` (sorted by name, first valid one wins)
 4. This directory: `pets/<id>/`
 

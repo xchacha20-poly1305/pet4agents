@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Hook entry for claude-code-pet.
+Hook entry for pet4agents.
 
 Usage:
     pet_event.py <EventName>          # called by Claude Code / Codex hooks
@@ -312,15 +312,17 @@ def ensure_venv_and_reexec() -> None:
 
 def send_to_daemon(payload: dict, timeout: float = 1.0) -> bool:
     """Send one JSON line to the daemon. Returns True on success."""
-    try:
-        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        s.settimeout(timeout)
-        s.connect(str(config.SOCKET_PATH))
-        s.sendall((json.dumps(payload) + "\n").encode("utf-8"))
-        s.close()
-        return True
-    except (FileNotFoundError, ConnectionRefusedError, socket.timeout, OSError):
-        return False
+    paths = (config.SOCKET_PATH, config.LEGACY_SOCKET_PATH)
+    for path in paths:
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+                s.settimeout(timeout)
+                s.connect(str(path))
+                s.sendall((json.dumps(payload) + "\n").encode("utf-8"))
+            return True
+        except (FileNotFoundError, ConnectionRefusedError, socket.timeout, OSError):
+            continue
+    return False
 
 
 # ------------------------- Agent PID discovery -------------------------
@@ -391,7 +393,7 @@ def _read_ppid(pid: int) -> int:
 
 def _infer_agent_type_from_env() -> str:
     """Infer the hook source without claiming a reliable liveness PID."""
-    explicit = os.environ.get("PET4CLAUDE_AGENT", "").strip().lower()
+    explicit = os.environ.get("PET4AGENTS_AGENT", "").strip().lower()
     if explicit in AGENT_PROCESS_NAMES:
         return explicit
     # Codex intentionally injects CLAUDE_PLUGIN_ROOT for compatibility with

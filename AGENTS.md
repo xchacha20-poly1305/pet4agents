@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`claude-code-pet` is a Claude Code and Codex CLI **plugin** (not a standalone app) that ships a Linux desktop pet. It reuses the Codex pet asset format (`pet.json` + 1536×1872 spritesheet, 8×9 grid, 192×208 cells). There is no build system, no test suite, no linter — the whole plugin is three Python files driven by agent hooks.
+`pet4agents` is a Claude Code and Codex CLI **plugin** (not a standalone app) that ships a Linux desktop pet. It reuses the Codex pet asset format (`pet.json` + 1536×1872 spritesheet, 8×9 grid, 192×208 cells). There is no build system, no test suite, no linter — the whole plugin is three Python files driven by agent hooks.
 
 Install during development by pointing Claude `/plugin add` at this directory, copying/cloning into `~/.claude/plugins/`, or referencing this directory from a Codex marketplace.
 
@@ -12,11 +12,11 @@ Install during development by pointing Claude `/plugin add` at this directory, c
 
 The plugin is intentionally split so the hook process never blocks on Qt/PySide6:
 
-1. **`hooks/hooks.json` / `hooks/codex-hooks.json`** — Claude Code uses `hooks/hooks.json`, which maps the Claude events this plugin currently animates (`SessionStart`, `SessionEnd`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `SubagentStop`, `Notification`, `PermissionRequest`, `PostToolUseFailure`, `PermissionDenied`, `SubagentStart`, `TaskCreated`, `TaskCompleted`, `StopFailure`, `PreCompact`, `PostCompact`, `Elicitation`, `ElicitationResult`) to `scripts/pet_event.py <EventName>` via `${CLAUDE_PLUGIN_ROOT}` and sets `PET4CLAUDE_AGENT=claude` in the hook command. Claude Code supports additional hook events that this plugin intentionally ignores unless they are added to `config.py` and `hooks/hooks.json`. Those Claude hooks are `async: true`; `SessionStart` has a longer timeout for first install, and the rest are short-timeout. Claude's hook-file schema allows a top-level `description` field in `hooks/hooks.json`. Codex uses `.codex-plugin/plugin.json` → `hooks/codex-hooks.json`, which maps the narrower Codex-supported subset (`SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PreCompact`, `PostCompact`, `SubagentStart`, `SubagentStop`, `Stop`, `PermissionRequest`) via `${PLUGIN_ROOT}` and sets `PET4CLAUDE_AGENT=codex`. Codex command hooks currently run synchronously, so the Codex hook file does not set `async`. Codex's hooks-file schema is stricter: `hooks/codex-hooks.json` must have only the top-level `hooks` key, so do not copy Claude's top-level `description` into the Codex file. Do not infer the source from `CLAUDE_PLUGIN_ROOT` alone: Codex also injects that variable for Claude-plugin compatibility.
+1. **`hooks/hooks.json` / `hooks/codex-hooks.json`** — Claude Code uses `hooks/hooks.json`, which maps the Claude events this plugin currently animates (`SessionStart`, `SessionEnd`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `SubagentStop`, `Notification`, `PermissionRequest`, `PostToolUseFailure`, `PermissionDenied`, `SubagentStart`, `TaskCreated`, `TaskCompleted`, `StopFailure`, `PreCompact`, `PostCompact`, `Elicitation`, `ElicitationResult`) to `scripts/pet_event.py <EventName>` via `${CLAUDE_PLUGIN_ROOT}` and sets `PET4AGENTS_AGENT=claude` in the hook command. Claude Code supports additional hook events that this plugin intentionally ignores unless they are added to `config.py` and `hooks/hooks.json`. Those Claude hooks are `async: true`; `SessionStart` has a longer timeout for first install, and the rest are short-timeout. Claude's hook-file schema allows a top-level `description` field in `hooks/hooks.json`. Codex uses `.codex-plugin/plugin.json` → `hooks/codex-hooks.json`, which maps the narrower Codex-supported subset (`SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PreCompact`, `PostCompact`, `SubagentStart`, `SubagentStop`, `Stop`, `PermissionRequest`) via `${PLUGIN_ROOT}` and sets `PET4AGENTS_AGENT=codex`. Codex command hooks currently run synchronously, so the Codex hook file does not set `async`. Codex's hooks-file schema is stricter: `hooks/codex-hooks.json` must have only the top-level `hooks` key, so do not copy Claude's top-level `description` into the Codex file. Do not infer the source from `CLAUDE_PLUGIN_ROOT` alone: Codex also injects that variable for Claude-plugin compatibility.
 
 2. **`scripts/pet_event.py`** (hook relay) — Runs in the hook process. It first tries to send one JSON line over a Unix socket to the daemon without importing Qt or requiring the managed venv. If the daemon is missing, only `SessionStart` starts it: the foreground hook spawns a detached `daemon-spawn-event` worker, and that worker may take its time running `ensure_venv_and_reexec`, launching the daemon, and replaying the original `SessionStart` event. This keeps Codex's synchronous hook path from blocking on PySide6 install. `daemon-spawn` still ensures the venv before directly starting the daemon; `daemon-stop` and `set-pet` do not need the venv. The managed venv installs the pinned dependency set from `config.PINNED_PYTHON_DEPENDENCIES`, and both the `uv` path and the stdlib `venv` + `pip` fallback must install through the repo's hash-pinned `requirements-uv.lock.txt`. The relay stores a small runtime-state file under the venv; if a later plugin update changes the plugin version, pinned deps, or lockfile content, the next `SessionStart` tears down the old venv and rebuilds it before spawning the daemon. Every error path is swallowed and logged; hooks must never block the agent.
 
-3. **`scripts/pet_daemon.py`** (long-running Qt process) — Frameless transparent always-on-top `QWidget`, renders frames from the atlas, listens on `QLocalServer`. Singleton-enforced via pidfile + socket probe. Tracks live sessions as `session_id -> (parent_pid, agent_type)` and, by default, schedules its own quit shortly after the last session drains (whether via a clean `SessionEnd` hook or, when `pet_event.py` found a reliable Claude/Codex PID, via the 5s liveness reaper noticing that PID is gone — covers crashes / `SIGKILL` / closed terminal only when a reliable PID was found). `pet_event.py` accepts a PID for liveness only from an ancestor whose `comm` or `argv[0]` basename is exactly `claude` or `codex`; if no reliable agent process is found, it sends `parent_pid=0` and the daemon skips liveness reaping for that session rather than mistaking a short-lived shell wrapper for the agent. On each `SessionStart` the daemon switches to the per-tool pet configured via `claude_pet_id` / `codex_pet_id`; on clean `SessionEnd` it reverts to the remaining tool's pet if all surviving sessions belong to one tool. The liveness reaper drains dead sessions and runs the quit check, but does not currently perform that pet reversion step. Set `stay_even_no_session: true` in `~/.config/claude-code-pet/config.json` for the legacy "always-on" behavior; `/pet-stop` and the Codex pet skill still work either way.
+3. **`scripts/pet_daemon.py`** (long-running Qt process) — Frameless transparent always-on-top `QWidget`, renders frames from the atlas, listens on `QLocalServer`. Singleton-enforced via pidfile + socket probe. Tracks live sessions as `session_id -> (parent_pid, agent_type)` and, by default, schedules its own quit shortly after the last session drains (whether via a clean `SessionEnd` hook or, when `pet_event.py` found a reliable Claude/Codex PID, via the 5s liveness reaper noticing that PID is gone — covers crashes / `SIGKILL` / closed terminal only when a reliable PID was found). `pet_event.py` accepts a PID for liveness only from an ancestor whose `comm` or `argv[0]` basename is exactly `claude` or `codex`; if no reliable agent process is found, it sends `parent_pid=0` and the daemon skips liveness reaping for that session rather than mistaking a short-lived shell wrapper for the agent. On each `SessionStart` the daemon switches to the per-tool pet configured via `claude_pet_id` / `codex_pet_id`; on clean `SessionEnd` it reverts to the remaining tool's pet if all surviving sessions belong to one tool. The liveness reaper drains dead sessions and runs the quit check, but does not currently perform that pet reversion step. Set `stay_even_no_session: true` in `~/.config/pet4agents/config.json` for the legacy "always-on" behavior; `/pet-stop` and the Codex pet skill still work either way.
 
 `scripts/config.py` is shared by both processes — paths, atlas geometry, the animation table, and the event-to-animation map all live there. **Change behavior there, not in the daemon.**
 
@@ -47,7 +47,7 @@ The drag code is more complex than it looks because compositors disagree:
 - The `_drag_idle_timer` watchdog checks button state after 220ms without movement: if left is still down, the drag session stays alive and can resume without changing animation; if not, drag cleanup runs.
 - `_update_drag_state` accumulates dx until it crosses `DRAG_VEL_THRESHOLD` (4px) and resets the accumulator on sign reversal — **don't** call `_restart_timer()` from there; it would reset `frame_index` and starve the animation while the cursor moves.
 
-When changing drag logic, set `CCPET_DEBUG=1` in the daemon's environment to get verbose drag logs in `event.log`.
+When changing drag logic, set `PET4AGENTS_DEBUG=1` in the daemon's environment to get verbose drag logs in `event.log`.
 
 ## Pet discovery order
 
@@ -59,14 +59,14 @@ Per-tool overrides (`claude_pet_id` / `codex_pet_id` in config) are handled sepa
 
 | Purpose | Path |
 | --- | --- |
-| Managed venv (PySide6 only) | `~/.local/share/claude-code-pet/venv/` |
-| Venv runtime state | `~/.local/share/claude-code-pet/venv/.pet-runtime.json` |
-| User config | `~/.config/claude-code-pet/config.json` |
-| Window position | `~/.config/claude-code-pet/state.json` |
-| Unix socket | `${XDG_RUNTIME_DIR:-/tmp}/claude-code-pet.sock` |
-| Daemon pidfile | `~/.local/state/claude-code-pet/daemon.pid` |
-| Event log | `~/.local/state/claude-code-pet/event.log` |
-| Install log | `~/.local/state/claude-code-pet/install.log` |
+| Managed venv (PySide6 only) | `~/.local/share/pet4agents/venv/` |
+| Venv runtime state | `~/.local/share/pet4agents/venv/.pet-runtime.json` |
+| User config | `~/.config/pet4agents/config.json` |
+| Window position | `~/.config/pet4agents/state.json` |
+| Unix socket | `${XDG_RUNTIME_DIR:-/tmp}/pet4agents.sock` |
+| Daemon pidfile | `~/.local/state/pet4agents/daemon.pid` |
+| Event log | `~/.local/state/pet4agents/event.log` |
+| Install log | `~/.local/state/pet4agents/install.log` |
 
 `event.log` is the primary debugging surface — both relay and daemon append to it with timestamps. Hooks otherwise produce no visible output.
 
@@ -74,14 +74,14 @@ Per-tool overrides (`claude_pet_id` / `codex_pet_id` in config) are handled sepa
 
 - **Manually run the daemon for debugging** (after first install populates the venv):
   ```bash
-  ~/.local/share/claude-code-pet/venv/bin/python scripts/pet_daemon.py
+  ~/.local/share/pet4agents/venv/bin/python scripts/pet_daemon.py
   ```
 - **Send a synthetic event** without going through Claude/Codex:
   ```bash
   echo '{}' | scripts/pet_event.py Stop
   ```
 - **Stop the daemon**: `/pet-stop` (or `scripts/pet_event.py daemon-stop`).
-- **Switch pets**: `/pet-set <pet-id>`, ask Codex to switch the pet, or edit `~/.config/claude-code-pet/config.json`.
+- **Switch pets**: `/pet-set <pet-id>`, ask Codex to switch the pet, or edit `~/.config/pet4agents/config.json`.
 - **Force a clean reinstall**: see the Uninstall block in `README.md`.
 
 ## Adding a new animation or event
@@ -93,4 +93,4 @@ Per-tool overrides (`claude_pet_id` / `codex_pet_id` in config) are handled sepa
 
 ## Tuning animation durations
 
-Per-frame durations on every animation in `config.ANIMATIONS` can be overridden from `~/.config/claude-code-pet/config.json` via the `animation_durations` key (see README). `config._apply_animation_duration_overrides()` runs at import time and mutates `ANIMATIONS` in-place, so any consumer that reads `config.ANIMATIONS` (the daemon does) automatically sees the user values — **don't add a second merge path**. JSON is the only supported entry point; do not add CLI flags or slash commands for this. Validation is intentionally strict-but-silent: list length must equal the default frame count, all entries must be positive numbers, unknown animation names are ignored.
+Per-frame durations on every animation in `config.ANIMATIONS` can be overridden from `~/.config/pet4agents/config.json` via the `animation_durations` key (see README). `config._apply_animation_duration_overrides()` runs at import time and mutates `ANIMATIONS` in-place, so any consumer that reads `config.ANIMATIONS` (the daemon does) automatically sees the user values — **don't add a second merge path**. JSON is the only supported entry point; do not add CLI flags or slash commands for this. Validation is intentionally strict-but-silent: list length must equal the default frame count, all entries must be positive numbers, unknown animation names are ignored.
