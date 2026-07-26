@@ -17,6 +17,7 @@ we fall back to base_stack[-1]. drag_state is cleared on mouse release.
 """
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import signal
@@ -798,24 +799,40 @@ class IpcServer:
 
 # ----------------------- main -----------------------
 
+# Kept open for the process lifetime: closing it (or letting it be
+# garbage-collected) releases the flock below. Never reassign/close this
+# once acquire_singleton() succeeds.
+_pidfile_lock_fd: int | None = None
+
+
 def acquire_singleton() -> bool:
-    """Best-effort daemon singleton via pidfile + socket probe."""
+    """Daemon singleton via an flock'd pidfile.
+
+    A plain "check pid, then write pidfile" dance is racy: two daemons
+    launched back-to-back (e.g. Codex firing several SessionStart events in
+    quick succession while compacting context, or a user rapidly
+    opening/closing the Claude Code UI) can both pass the check before
+    either writes, and both end up believing they're the only instance.
+    flock(2) on the pidfile is atomic at the kernel level, so only one
+    process can ever hold it regardless of timing.
+    """
+    global _pidfile_lock_fd
     config.ensure_dirs()
-    if config.PIDFILE_PATH.exists():
+    fd = os.open(str(config.PIDFILE_PATH), os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
         try:
-            pid = int(config.PIDFILE_PATH.read_text("utf-8").strip())
-        except Exception:
-            pid = 0
-        if pid > 0:
-            try:
-                os.kill(pid, 0)
-                # Process exists; check the socket too. If both look alive, abort.
-                if config.SOCKET_PATH.exists():
-                    _log(f"another daemon already running (pid={pid})")
-                    return False
-            except OSError:
-                pass  # stale pidfile
-    config.PIDFILE_PATH.write_text(str(os.getpid()) + "\n", encoding="utf-8")
+            existing = os.read(fd, 64).decode("utf-8", "replace").strip()
+        except OSError:
+            existing = "?"
+        os.close(fd)
+        _log(f"another daemon already running (pid={existing or '?'})")
+        return False
+    os.ftruncate(fd, 0)
+    os.write(fd, f"{os.getpid()}\n".encode("utf-8"))
+    os.fsync(fd)
+    _pidfile_lock_fd = fd  # keep the lock held for the life of this process
     return True
 
 
@@ -843,12 +860,19 @@ def main() -> int:
         return 1
 
     def _quit():
+        global _pidfile_lock_fd
         try:
             QLocalServer.removeServer(str(config.SOCKET_PATH))
             if config.PIDFILE_PATH.exists():
                 config.PIDFILE_PATH.unlink()
         except Exception:
             pass
+        if _pidfile_lock_fd is not None:
+            try:
+                os.close(_pidfile_lock_fd)
+            except OSError:
+                pass
+            _pidfile_lock_fd = None
         app.quit()
 
     win.quit_requested.connect(_quit)
