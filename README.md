@@ -11,7 +11,7 @@ A Linux desktop pet plugin for [Claude Code](https://claude.com/claude-code) and
 - Linux (X11 or native Wayland)
 - Python 3.10+ available as `python3` (pip / venv module included)
 - A working desktop session (`DISPLAY` or `WAYLAND_DISPLAY`)
-- A Codex-format pet at `~/.codex/pets/<pet-id>/` (`pet.json` + `spritesheet.webp` or `spritesheet.png`)
+- A Codex-format pet at `~/.codex/pets/<pet-id>/` (`pet.json` + `spritesheet.webp` or `spritesheet.png`), v1 or v2
 
 PySide6 `6.11.1` is auto-installed into a private venv at `~/.local/share/pet4agents/venv/` on first hook fire (~60 MB download, one-time). Both the preferred `uv` path and the stdlib `venv` + `pip` fallback install from the repo's hash-pinned `requirements-uv.lock.txt`. The plugin records the expected runtime state there; if a later plugin update changes the pinned dependency set, the lockfile content, or the plugin version, the next `SessionStart` rebuilds that venv before starting the daemon.
 
@@ -100,6 +100,19 @@ Codex hook support is narrower than Claude Code's hook support.
 | `SessionEnd`           | wave once → quit if no other sessions remain (override with `stay_even_no_session`) |
 | Drag                   | running-right / running-left / jumping based on motion |
 
+## Pet formats (v1 and v2)
+
+Both Codex pet generations work, picked from `spriteVersionNumber` in `pet.json` and verified against the atlas itself:
+
+| Version | Atlas | `spriteVersionNumber` | Extras |
+| --- | --- | --- | --- |
+| v1 | `1536x1872`, 8 cols × 9 rows | absent or `1` | — |
+| v2 | `1536x2288`, 8 cols × 11 rows | `2` | neutral look cell at row 0 / col 6, plus 16 clockwise look directions in rows 9–10 |
+
+The nine animation rows are identical in both, so a v2 pet animates exactly like a v1 one. On top of that, a **v2 pet turns to face your mouse pointer while it is idle**: the pointer direction is mapped to one of 16 cells (22.5° apart, index 0 = straight up, going clockwise), and the neutral cell is used when the pointer sits right on the pet. Tracking stops as soon as the pet has something to do — during a drag, a oneshot flash, or any open interval the animation wins — and beyond `look_radius` the pet goes back to its idle loop. Set `look_at_cursor: false` to turn it off.
+
+If a pet's declared version disagrees with its actual atlas height, the atlas wins and the mismatch is logged to `event.log`.
+
 ## Slash commands
 
 - `/pet-stop` — quit the pet daemon
@@ -115,6 +128,9 @@ Codex hook support is narrower than Claude Code's hook support.
   "claude_pet_id": "claude-muse",
   "codex_pet_id": "codex-buddy",
   "stay_even_no_session": false,
+  "look_at_cursor": true,
+  "look_radius": 600,
+  "look_deadzone": 48,
   "animation_durations": {
     "idle":          [280, 110, 110, 140, 140, 320],
     "running-right": [120, 120, 120, 120, 120, 120, 120, 220],
@@ -129,6 +145,9 @@ Codex hook support is narrower than Claude Code's hook support.
 | `claude_pet_id` | `""` | Pet to show when a Claude Code session starts. Reverts to the Codex pet when only Codex sessions remain. Empty = use `pet_id` discovery. |
 | `codex_pet_id` | `""` | Pet to show when a Codex session starts. Reverts to the Claude pet when only Claude sessions remain. Empty = use `pet_id` discovery. |
 | `stay_even_no_session` | `false` | When `false`, the daemon exits shortly after the last agent session ends. Set to `true` to keep the daemon running until you call `/pet-stop` or ask Codex to stop the pet. The "session ends" check covers the clean `SessionEnd` hook and, when the hook relay found a reliable Claude Code / Codex PID, crashes / `SIGKILL` / terminal close via a 5s liveness poll. If no reliable agent PID is found, the daemon skips PID reaping for that session rather than tracking a short-lived shell wrapper. |
+| `look_at_cursor` | `true` | v2 pets only: turn the pet toward the mouse pointer while it is idle. v1 pets have no look rows and ignore this. |
+| `look_radius` | `600` | Pointer distance in pixels (from the pet's center) beyond which the pet stops tracking and plays its normal idle loop. |
+| `look_deadzone` | `48` | Pointer distance in pixels below which the pet shows the neutral look cell instead of a direction, so it doesn't spin when the pointer rests on it. |
 | `animation_durations` | `{}` | Per-animation per-frame duration overrides in **milliseconds**. Each value is a list, one entry per frame. Length **must** match the default frame count for that animation (the spritesheet row has a fixed number of cells); mismatched, malformed, or unknown entries are silently ignored. Animation names: `idle`, `running-right`, `running-left`, `waving`, `jumping`, `failed`, `waiting`, `running`, `review` — frame counts: see `scripts/config.py:ANIMATIONS`. JSON is the only entry point; there is no slash command for this. |
 
 Override the pet via env var: `CLAUDE_PET_ID=<id>` or `CODEX_PET_ID=<id>`.

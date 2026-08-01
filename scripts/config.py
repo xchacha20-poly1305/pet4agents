@@ -6,12 +6,56 @@ import os
 from pathlib import Path
 
 # --- Atlas geometry (matches Codex pet contract) ---
+#
+# Two sprite generations are supported, distinguished by `spriteVersionNumber`
+# in pet.json (absent or 1 = v1, 2 = v2):
+#
+#   v1: 1536x1872, 8 cols x  9 rows — the nine animation rows below.
+#   v2: 1536x2288, 8 cols x 11 rows — same nine animation rows, plus a neutral
+#       look cell at row 0 / col 6 and 16 look directions filling rows 9-10.
+#
+# Cell size is identical in both, so every v1 row index stays valid for v2.
 CELL_W = 192
 CELL_H = 208
 ATLAS_COLS = 8
-ATLAS_ROWS = 9
+SPRITE_V1 = 1
+SPRITE_V2 = 2
+ATLAS_ROWS_BY_VERSION = {SPRITE_V1: 9, SPRITE_V2: 11}
 ATLAS_W = CELL_W * ATLAS_COLS  # 1536
+ATLAS_ROWS = ATLAS_ROWS_BY_VERSION[SPRITE_V1]
 ATLAS_H = CELL_H * ATLAS_ROWS  # 1872
+
+
+def atlas_height(sprite_version: int) -> int:
+    """Expected atlas height in pixels for a sprite generation."""
+    return CELL_H * ATLAS_ROWS_BY_VERSION.get(sprite_version, ATLAS_ROWS)
+
+
+def sprite_version_for_height(height: int) -> int | None:
+    """Reverse lookup: which sprite generation an atlas of this pixel height
+    is, or None if it matches neither contract."""
+    for version, rows in ATLAS_ROWS_BY_VERSION.items():
+        if height == CELL_H * rows:
+            return version
+    return None
+
+
+# --- v2 look-direction layout ---
+#
+# 16 cells, clockwise, index 0 = looking straight up, index 4 = right,
+# 8 = down, 12 = left (22.5 degrees per step). They fill rows 9 and 10 left to
+# right: index 0-7 in row 9, index 8-15 in row 10. `LOOK_NEUTRAL_CELL` is the
+# front-facing pose used inside the pointer deadzone.
+LOOK_DIRECTIONS = 16
+LOOK_FIRST_ROW = 9
+LOOK_NEUTRAL_CELL = (0, 6)  # (row, col)
+LOOK_DEGREES_PER_STEP = 360.0 / LOOK_DIRECTIONS
+
+
+def look_cell(direction_index: int) -> tuple[int, int]:
+    """(row, col) of the look cell for a clockwise-from-up direction index."""
+    idx = direction_index % LOOK_DIRECTIONS
+    return LOOK_FIRST_ROW + idx // ATLAS_COLS, idx % ATLAS_COLS
 
 # --- Animation table (row index, used columns, per-frame durations in ms) ---
 # Source: ~/.claude/skills/hatch-pet/references/animation-rows.md
@@ -203,6 +247,16 @@ DEFAULT_USER_CONFIG: dict = {
     # sessions remain. Empty string = fall back to shared `pet_id` discovery.
     "claude_pet_id": "",
     "codex_pet_id": "",
+    # v2 pets only: turn the pet's head toward the mouse pointer while it is
+    # idle. Ignored for v1 pets (their atlas has no look rows).
+    "look_at_cursor": True,
+    # Pointer distance (px, from the pet's center) beyond which the pet stops
+    # tracking and plays its normal idle loop.
+    "look_radius": 600,
+    # Pointer distance (px) below which the pet shows the neutral look cell
+    # instead of a direction — avoids jittery spinning when the pointer sits
+    # on top of the pet.
+    "look_deadzone": 48,
     # When False (default) the daemon exits after the last Claude session ends.
     # When True the daemon keeps running until `/pet-stop` (legacy behavior).
     "stay_even_no_session": False,

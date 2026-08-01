@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import fcntl
 import json
+import math
 import os
 import signal
 import sys
@@ -39,6 +40,7 @@ from PySide6.QtCore import (  # noqa: E402
     Signal,
 )
 from PySide6.QtGui import (  # noqa: E402
+    QCursor,
     QGuiApplication,
     QPainter,
     QPixmap,
@@ -75,6 +77,14 @@ def _resolve_sheet_path(pet_dir: Path, meta: dict) -> Path | None:
         if p.exists():
             return p
     return None
+
+
+def _positive_number(value, fallback: float) -> float:
+    """Config values are user-authored, so treat anything that isn't a
+    positive number as "not set" instead of letting it reach the renderer."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return float(fallback)
+    return float(value) if value > 0 else float(fallback)
 
 
 def _is_valid_pet_dir(d: Path) -> bool:
@@ -176,6 +186,9 @@ DRAG_IDLE_TIMEOUT_MS = 220  # fallback drag: no moveEvent for this long -> check
 # the cursor crosses DRAG_VEL_THRESHOLD or the press is held this long. Once
 # either condition fires the press promotes to a drag (drag_state set).
 LONG_PRESS_MS = 220
+# How often the pointer is sampled for v2 look tracking. 100ms reads as
+# instant while costing one cursor query per tick.
+LOOK_POLL_MS = 100
 
 
 class PetWindow(QWidget):
@@ -191,6 +204,14 @@ class PetWindow(QWidget):
         self.base_stack: list[tuple[str | None, str]] = [(None, "idle")]
         self.oneshot_state: str | None = None
         self.drag_state: str | None = None
+        # v2 look layer: (row, col) of the look cell to draw instead of the
+        # current animation frame, or None when the pet isn't tracking the
+        # pointer. Sits above every other layer at *render* time only — it
+        # never touches the state machine, so a look pose is dropped the
+        # instant an event/drag makes the pet do something else.
+        self.sprite_version: int = config.SPRITE_V1
+        self.look_cell: tuple[int, int] | None = None
+        self._reload_look_settings()
 
         # Tracks live sessions: session_id -> (parent_pid, agent_type).
         # parent_pid: 0 means unknown — session is exempt from liveness check.
@@ -257,6 +278,14 @@ class PetWindow(QWidget):
         self._session_liveness_timer.timeout.connect(self._reap_dead_sessions)
         self._session_liveness_timer.start()
 
+        # Pointer tracking for v2 look directions. Polled rather than driven by
+        # mouse events: the window is click-through-ish and never grabs focus,
+        # so we only see events that land on the pet itself.
+        self._look_timer = QTimer(self)
+        self._look_timer.setInterval(LOOK_POLL_MS)
+        self._look_timer.timeout.connect(self._update_look)
+        self._look_timer.start()
+
     def _init_window(self) -> None:
         self.setWindowFlags(
             Qt.FramelessWindowHint
@@ -290,14 +319,44 @@ class PetWindow(QWidget):
         if pix.isNull():
             _log(f"failed to load atlas: {sheet_path}")
             return
-        if pix.width() != config.ATLAS_W or pix.height() != config.ATLAS_H:
+        self.sprite_version = self._detect_sprite_version(pix, meta)
+        if (pix.width() != config.ATLAS_W
+                or pix.height() != config.atlas_height(self.sprite_version)):
             _log(
                 f"atlas size mismatch: got {pix.width()}x{pix.height()}, "
-                f"expected {config.ATLAS_W}x{config.ATLAS_H}"
+                f"expected {config.ATLAS_W}x"
+                f"{config.atlas_height(self.sprite_version)} "
+                f"for sprite v{self.sprite_version}"
             )
         self.atlas = pix
         self.pet_dir = pet_dir
         self.meta = meta
+        # A new pet may not have look rows; drop any stale look pose.
+        self.look_cell = None
+
+    @staticmethod
+    def _detect_sprite_version(pix: QPixmap, meta: dict) -> int:
+        """Decide which sprite generation an atlas is.
+
+        `spriteVersionNumber` in pet.json is the declaration, but the pixels
+        are the truth: a pet that claims v2 while shipping a 9-row sheet would
+        otherwise have us sampling look cells that don't exist. When the two
+        disagree (or the field is missing/garbage) the measured height wins,
+        and we fall back to v1 for anything unrecognizable."""
+        declared = meta.get("spriteVersionNumber")
+        if isinstance(declared, bool) or not isinstance(declared, int):
+            declared = None
+        measured = config.sprite_version_for_height(pix.height())
+        if measured is None:
+            if declared in config.ATLAS_ROWS_BY_VERSION:
+                return declared
+            return config.SPRITE_V1
+        if declared is not None and declared != measured:
+            _log(
+                f"pet declares spriteVersionNumber={declared} but the atlas is "
+                f"{pix.height()}px tall (v{measured}); trusting the atlas"
+            )
+        return measured
 
     def reload_pet(self) -> None:
         found = discover_pet()
@@ -306,6 +365,7 @@ class PetWindow(QWidget):
             return
         pet_dir, meta = found
         self._load_pet(pet_dir, meta)
+        self._reload_look_settings()
         self._render_current_frame()
 
     # ----- state machine -----
@@ -538,11 +598,61 @@ class PetWindow(QWidget):
         self._render_current_frame()
         self.timer.start(self.anim.current_duration_ms())
 
+    # ----- v2 look directions -----
+
+    def _reload_look_settings(self) -> None:
+        """Cache the look-related user config. Read once here rather than on
+        every poll so pointer tracking costs no filesystem IO."""
+        cfg = config.load_user_config()
+        defaults = config.DEFAULT_USER_CONFIG
+        self._look_enabled = bool(cfg.get("look_at_cursor", defaults["look_at_cursor"]))
+        self._look_radius = _positive_number(
+            cfg.get("look_radius"), defaults["look_radius"]
+        )
+        self._look_deadzone = _positive_number(
+            cfg.get("look_deadzone"), defaults["look_deadzone"]
+        )
+
+    def _look_ready(self) -> bool:
+        """Look poses only stand in for the plain idle loop — never during a
+        drag, a oneshot flash, or while any interval is open, and never for v1
+        pets (their atlas has no look rows)."""
+        if self.sprite_version != config.SPRITE_V2 or self.atlas.isNull():
+            return False
+        if self.drag_state or self.oneshot_state:
+            return False
+        return self.base_stack[-1][1] == "idle"
+
+    def _update_look(self) -> None:
+        """Pick the look cell for the current pointer position, if any."""
+        cell: tuple[int, int] | None = None
+        if self._look_enabled and self._look_ready():
+            center = self.frameGeometry().center()
+            pos = QCursor.pos()
+            dx = pos.x() - center.x()
+            dy = pos.y() - center.y()
+            dist = math.hypot(dx, dy)
+            if dist <= self._look_radius:
+                if dist < self._look_deadzone:
+                    cell = config.LOOK_NEUTRAL_CELL
+                else:
+                    # Clockwise from screen-up, matching the v2 cell order.
+                    angle = math.degrees(math.atan2(dx, -dy)) % 360.0
+                    cell = config.look_cell(
+                        round(angle / config.LOOK_DEGREES_PER_STEP)
+                    )
+        if cell != self.look_cell:
+            self.look_cell = cell
+            self._render_current_frame()
+
     def _render_current_frame(self) -> None:
         if self.atlas.isNull():
             return
-        col = self.anim.frame_index
-        row = self.anim.current_row()
+        if self.look_cell and self._look_ready():
+            row, col = self.look_cell
+        else:
+            col = self.anim.frame_index
+            row = self.anim.current_row()
         rect = QRect(col * config.CELL_W, row * config.CELL_H, config.CELL_W, config.CELL_H)
         self._frame_buf.fill(Qt.transparent)
         p = QPainter(self._frame_buf)

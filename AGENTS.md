@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`pet4agents` is a Claude Code and Codex CLI **plugin** (not a standalone app) that ships a Linux desktop pet. It reuses the Codex pet asset format (`pet.json` + 1536×1872 spritesheet, 8×9 grid, 192×208 cells). There is no build system, no test suite, no linter — the whole plugin is three Python files driven by agent hooks.
+`pet4agents` is a Claude Code and Codex CLI **plugin** (not a standalone app) that ships a Linux desktop pet. It reuses the Codex pet asset format (`pet.json` + spritesheet, 192×208 cells): v1 (1536×1872, 8×9 grid) and v2 (1536×2288, 8×11 grid). There is no build system, no test suite, no linter — the whole plugin is three Python files driven by agent hooks.
 
 Install during development by pointing Claude `/plugin add` at this directory, copying/cloning into `~/.claude/plugins/`, or referencing this directory from a Codex marketplace.
 
@@ -37,6 +37,14 @@ Each event is a combination of three actions, processed in order:
 A single event can do all three (e.g. `PreToolUse` closes a `PermissionRequest` interval, opens a `waiting` interval, and plays no oneshot; `Stop` closes everything down to idle and flashes a `jumping` oneshot). Events that appear in none of the three tables are ignored.
 
 The closed-loop model means terminal-feeling events (`Notification`, `PermissionRequest`) loop until the next user action implicitly closes them, instead of flashing once and being missed.
+
+## Sprite versions and the look layer
+
+`pet.json`'s `spriteVersionNumber` selects the atlas contract: absent/`1` = v1 (1536×1872, 9 rows), `2` = v2 (1536×2288, 11 rows). Geometry lives in `config.ATLAS_ROWS_BY_VERSION` / `atlas_height()` / `sprite_version_for_height()`. `PetWindow._detect_sprite_version` treats the declared field as a hint only — the measured atlas height wins when they disagree (a pet claiming v2 with a 9-row sheet would otherwise make the daemon sample look cells that don't exist), and anything unrecognizable falls back to v1. Rows 0–8 are identical across versions, so nothing in `config.ANIMATIONS` is version-dependent.
+
+v2 adds a neutral look cell at row 0 / col 6 (`config.LOOK_NEUTRAL_CELL`) and 16 clockwise look directions filling rows 9–10 (`config.look_cell(index)`; index 0 = up, 4 = right, 8 = down, 12 = left, 22.5° per step). The daemon polls `QCursor.pos()` every `LOOK_POLL_MS` and picks a cell from the angle to the pet's center: inside `look_deadzone` → neutral cell, beyond `look_radius` → no look at all.
+
+The look layer is deliberately **render-only** — it is not a fourth state-machine layer. `_update_look` writes `self.look_cell`, and `_render_current_frame` draws that cell instead of the animation frame while `_look_ready()` holds (v2 atlas, no drag, no oneshot, base stack top is `idle`). Because the readiness check runs at paint time too, an event or drag that lands between polls drops the look pose immediately instead of showing a stale one. Look settings are cached by `_reload_look_settings()` (called at startup and on `reload_pet`) so the 10 Hz poll never touches the filesystem.
 
 ## Drag handling — platform pitfalls
 
