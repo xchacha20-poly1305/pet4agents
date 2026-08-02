@@ -159,6 +159,12 @@ Hook source detection uses the plugin's own `PET4AGENTS_AGENT` command marker pl
 ## Running tests
 
 ```bash
+uv run --with -r requirements-test.txt pytest tests/
+```
+
+Or without uv:
+
+```bash
 pip install -r requirements-test.txt
 python -m pytest tests/
 ```
