@@ -2,9 +2,7 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
-import textwrap
 from pathlib import Path
 from unittest import mock
 
@@ -40,6 +38,15 @@ def tmp_env(tmp_path):
     yield tmp_path
     for k, v in orig.items():
         setattr(config, k, v)
+
+
+@pytest.fixture()
+def daemon_cache(tmp_env):
+    """Reset pet_daemon._cached_max_log_size before and after each test."""
+    pet_daemon = _import_pet_daemon()
+    pet_daemon._cached_max_log_size = None
+    yield pet_daemon
+    pet_daemon._cached_max_log_size = None
 
 
 def _write_config(value: int | str | None, tmp_path: Path) -> None:
@@ -124,10 +131,11 @@ class TestTruncateLogIfNeeded:
 
     def test_single_line_file(self, tmp_path):
         p = tmp_path / "single.log"
-        p.write_text("only one line with no newline at end")
+        text = "only one line with no newline at end"
+        p.write_text(text)
+        original_size = p.stat().st_size
         config.truncate_log_if_needed(p, 10)
-        content = p.read_text()
-        assert len(content) < 35
+        assert p.stat().st_size < original_size
 
     def test_empty_file(self, tmp_path):
         p = tmp_path / "empty.log"
@@ -236,41 +244,31 @@ def _import_pet_daemon():
 
 
 class TestDaemonLogCache:
-    def test_cached_value_used(self, tmp_env):
-        pet_daemon = _import_pet_daemon()
+    def test_cached_value_used(self, daemon_cache, tmp_env):
         _write_config(500, tmp_env)
-        pet_daemon._cached_max_log_size = None
-
         for i in range(50):
-            pet_daemon._log(f"daemon event {i:04d} padding padding")
+            daemon_cache._log(f"daemon event {i:04d} padding padding")
         size = config.LOG_PATH.stat().st_size
         assert size <= 550
+        assert daemon_cache._cached_max_log_size == 500
 
-        assert pet_daemon._cached_max_log_size == 500
-
-    def test_cache_not_reloaded_on_every_call(self, tmp_env):
-        pet_daemon = _import_pet_daemon()
+    def test_cache_not_reloaded_on_every_call(self, daemon_cache, tmp_env):
         _write_config(500, tmp_env)
-        pet_daemon._cached_max_log_size = None
-
-        pet_daemon._log("first call loads cache")
-        assert pet_daemon._cached_max_log_size == 500
+        daemon_cache._log("first call loads cache")
+        assert daemon_cache._cached_max_log_size == 500
 
         _write_config(9999, tmp_env)
-        pet_daemon._log("second call uses cached value")
-        assert pet_daemon._cached_max_log_size == 500, "Should still be 500, not re-read"
+        daemon_cache._log("second call uses cached value")
+        assert daemon_cache._cached_max_log_size == 500, "Should still be 500, not re-read"
 
-    def test_cache_reset_invalidates(self, tmp_env):
+    def test_cache_reset_invalidates(self, daemon_cache, tmp_env):
         """Setting _cached_max_log_size to None forces re-read on next _log."""
-        pet_daemon = _import_pet_daemon()
         _write_config(500, tmp_env)
-        pet_daemon._cached_max_log_size = None
-
-        pet_daemon._log("triggers cache load")
-        assert pet_daemon._cached_max_log_size == 500
+        daemon_cache._log("triggers cache load")
+        assert daemon_cache._cached_max_log_size == 500
 
         _write_config(2000, tmp_env)
-        pet_daemon._cached_max_log_size = None  # simulate reload_pet
+        daemon_cache._cached_max_log_size = None  # simulate reload_pet
 
-        pet_daemon._log("triggers cache reload")
-        assert pet_daemon._cached_max_log_size == 2000
+        daemon_cache._log("triggers cache reload")
+        assert daemon_cache._cached_max_log_size == 2000
