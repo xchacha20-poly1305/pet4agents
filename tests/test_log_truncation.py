@@ -2,14 +2,12 @@
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
-from unittest import mock
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 import config
+from tests.conftest import import_pet_daemon
 
 
 # ── fixtures ──────────────────────────────────────────────────────────────
@@ -43,7 +41,7 @@ def tmp_env(tmp_path):
 @pytest.fixture()
 def daemon_cache(tmp_env):
     """Reset pet_daemon._cached_max_log_size before and after each test."""
-    pet_daemon = _import_pet_daemon()
+    pet_daemon = import_pet_daemon()
     pet_daemon._cached_max_log_size = None
     yield pet_daemon
     pet_daemon._cached_max_log_size = None
@@ -222,26 +220,6 @@ class TestPetEventLogIntegration:
 
 
 # ── daemon _log cache tests ──────────────────────────────────────────────
-
-# pet_daemon imports PySide6 at module level. In headless CI environments
-# PySide6 is not installed, so we stub it out before importing the module.
-
-def _import_pet_daemon():
-    """Import pet_daemon with PySide6 stubbed out."""
-    if "pet_daemon" in sys.modules:
-        return sys.modules["pet_daemon"]
-    try:
-        import PySide6  # noqa: F401
-    except ModuleNotFoundError:
-        pyside_mods = [
-            "PySide6", "PySide6.QtCore", "PySide6.QtGui",
-            "PySide6.QtNetwork", "PySide6.QtWidgets",
-        ]
-        for mod_name in pyside_mods:
-            sys.modules[mod_name] = mock.MagicMock()
-    import pet_daemon  # noqa: E402
-    return pet_daemon
-
 
 class TestDaemonLogCache:
     def test_cached_value_used(self, daemon_cache, tmp_env):
