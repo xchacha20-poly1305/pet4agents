@@ -156,6 +156,13 @@ Override the pet via env var: `CLAUDE_PET_ID=<id>` or `CODEX_PET_ID=<id>`.
 
 Hook source detection uses the plugin's own `PET4AGENTS_AGENT` command marker plus a process-tree liveness probe. `CLAUDE_PLUGIN_ROOT` alone is not treated as proof of Claude Code, because Codex also sets it for compatibility with Claude plugins.
 
+## Running tests
+
+```bash
+pip install -r requirements-test.txt
+python -m pytest tests/
+```
+
 ## Files / directories used
 
 - venv: `~/.local/share/pet4agents/venv/`
