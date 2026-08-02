@@ -1,0 +1,63 @@
+name: tests
+
+on:
+  push:
+    branches: [dev]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The plugin runs under whatever Python the user's agent host provides,
+        # so keep the floor at the oldest interpreter the scripts support.
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements-test.txt
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-test.txt
+
+      - name: Compile all scripts
+        run: python -m compileall -q scripts
+
+      - name: Run tests
+        run: python -m pytest tests/ -q
+
+  hooks-json:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Validate JSON manifests
+        run: |
+          python - <<'PY'
+          import json, pathlib, sys
+          bad = []
+          for p in sorted(pathlib.Path(".").glob("**/*.json")):
+              if ".git" in p.parts:
+                  continue
+              try:
+                  json.loads(p.read_text("utf-8"))
+              except Exception as e:
+                  bad.append(f"{p}: {e}")
+          print("\n".join(bad) or "all JSON files parse")
+          sys.exit(1 if bad else 0)
+          PY
