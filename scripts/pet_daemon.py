@@ -17,6 +17,8 @@ we fall back to base_stack[-1]. drag_state is cleared on mouse release.
 """
 from __future__ import annotations
 
+import ctypes
+import ctypes.util
 import fcntl
 import json
 import math
@@ -47,6 +49,71 @@ from PySide6.QtGui import (  # noqa: E402
 )
 from PySide6.QtNetwork import QLocalServer, QLocalSocket  # noqa: E402
 from PySide6.QtWidgets import QApplication, QLabel, QMenu, QWidget  # noqa: E402
+
+
+class _X11PointerProbe:
+    """Detect whether XWayland still owns the surface under the pointer."""
+
+    def __init__(self) -> None:
+        self._lib = None
+        self._display = None
+        if QGuiApplication.platformName() != "xcb":
+            return
+        try:
+            name = ctypes.util.find_library("X11")
+            if not name:
+                return
+            lib = ctypes.CDLL(name)
+            lib.XOpenDisplay.argtypes = [ctypes.c_char_p]
+            lib.XOpenDisplay.restype = ctypes.c_void_p
+            lib.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
+            lib.XDefaultRootWindow.restype = ctypes.c_ulong
+            lib.XQueryPointer.argtypes = [
+                ctypes.c_void_p,
+                ctypes.c_ulong,
+                ctypes.POINTER(ctypes.c_ulong),
+                ctypes.POINTER(ctypes.c_ulong),
+                ctypes.POINTER(ctypes.c_int),
+                ctypes.POINTER(ctypes.c_int),
+                ctypes.POINTER(ctypes.c_int),
+                ctypes.POINTER(ctypes.c_int),
+                ctypes.POINTER(ctypes.c_uint),
+            ]
+            lib.XQueryPointer.restype = ctypes.c_int
+            display = lib.XOpenDisplay(None)
+            if display:
+                self._lib = lib
+                self._display = display
+                self._root = lib.XDefaultRootWindow(display)
+        except Exception:
+            self._lib = None
+            self._display = None
+
+    def is_tracked(self) -> bool:
+        if self._lib is None or self._display is None:
+            return True
+        root_return = ctypes.c_ulong()
+        child_return = ctypes.c_ulong()
+        root_x = ctypes.c_int()
+        root_y = ctypes.c_int()
+        win_x = ctypes.c_int()
+        win_y = ctypes.c_int()
+        mask = ctypes.c_uint()
+        try:
+            ok = self._lib.XQueryPointer(
+                self._display,
+                self._root,
+                ctypes.byref(root_return),
+                ctypes.byref(child_return),
+                ctypes.byref(root_x),
+                ctypes.byref(root_y),
+                ctypes.byref(win_x),
+                ctypes.byref(win_y),
+                ctypes.byref(mask),
+            )
+        except Exception:
+            return True
+        return not ok or child_return.value != 0
 
 
 def _log(line: str) -> None:
@@ -211,6 +278,7 @@ class PetWindow(QWidget):
         # instant an event/drag makes the pet do something else.
         self.sprite_version: int = config.SPRITE_V1
         self.look_cell: tuple[int, int] | None = None
+        self._x11_pointer = _X11PointerProbe()
         self._reload_look_settings()
 
         # Tracks live sessions: session_id -> (parent_pid, agent_type).
@@ -626,7 +694,8 @@ class PetWindow(QWidget):
     def _update_look(self) -> None:
         """Pick the look cell for the current pointer position, if any."""
         cell: tuple[int, int] | None = None
-        if self._look_enabled and self._look_ready():
+        if (self._look_enabled and self._look_ready()
+                and self._x11_pointer.is_tracked()):
             center = self.frameGeometry().center()
             pos = QCursor.pos()
             dx = pos.x() - center.x()
