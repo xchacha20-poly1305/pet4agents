@@ -47,7 +47,7 @@ All processing happens locally. The only external dependency is PySide6/Qt, whic
 ## Data Retention
 
 - **Configuration and state files** persist until you manually delete them or uninstall the plugin
-- **Logs** are appended indefinitely; you can safely truncate or delete them at any time
+- **Logs** are auto-truncated when they exceed `max_log_size` (default 5 MiB; set to `0` in config to disable); you can also safely truncate or delete them manually at any time
 - **Session tracking** is in-memory only and cleared when the daemon exits
 
 ## Third-Party Dependencies

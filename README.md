@@ -131,6 +131,7 @@ If a pet's declared version disagrees with its actual atlas height, the atlas wi
   "look_at_cursor": true,
   "look_radius": 600,
   "look_deadzone": 48,
+  "max_log_size": 5242880,
   "animation_durations": {
     "idle":          [280, 110, 110, 140, 140, 320],
     "running-right": [120, 120, 120, 120, 120, 120, 120, 220],
@@ -148,6 +149,7 @@ If a pet's declared version disagrees with its actual atlas height, the atlas wi
 | `look_at_cursor` | `true` | v2 pets only: turn the pet toward the mouse pointer while it is idle. v1 pets have no look rows and ignore this. |
 | `look_radius` | `600` | Pointer distance in pixels (from the pet's center) beyond which the pet stops tracking and plays its normal idle loop. |
 | `look_deadzone` | `48` | Pointer distance in pixels below which the pet shows the neutral look cell instead of a direction, so it doesn't spin when the pointer rests on it. |
+| `max_log_size` | `5242880` | Maximum size in bytes each log file (`event.log`, `install.log`) may reach before automatic truncation. When exceeded, roughly the newest half is kept. Set to `0` to disable truncation (unbounded growth). Default: 5 MiB (5242880). |
 | `animation_durations` | `{}` | Per-animation per-frame duration overrides in **milliseconds**. Each value is a list, one entry per frame. Length **must** match the default frame count for that animation (the spritesheet row has a fixed number of cells); mismatched, malformed, or unknown entries are silently ignored. Animation names: `idle`, `running-right`, `running-left`, `waving`, `jumping`, `failed`, `waiting`, `running`, `review` — frame counts: see `scripts/config.py:ANIMATIONS`. JSON is the only entry point; there is no slash command for this. |
 
 Override the pet via env var: `CLAUDE_PET_ID=<id>` or `CODEX_PET_ID=<id>`.

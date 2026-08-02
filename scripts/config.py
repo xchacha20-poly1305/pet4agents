@@ -234,6 +234,27 @@ def ensure_dirs() -> None:
         d.mkdir(parents=True, exist_ok=True)
 
 
+def truncate_log_if_needed(log_path: Path, max_bytes: int) -> None:
+    """If *log_path* exceeds *max_bytes*, keep roughly the newest half."""
+    if max_bytes <= 0:
+        return
+    try:
+        size = log_path.stat().st_size
+        if size <= max_bytes:
+            return
+        keep = max_bytes // 2
+        with log_path.open("rb") as f:
+            f.seek(size - keep)
+            tail = f.read()
+        # Advance past the first partial line so we start on a clean boundary.
+        nl = tail.find(b"\n")
+        if nl >= 0:
+            tail = tail[nl + 1 :]
+        log_path.write_bytes(tail)
+    except Exception:
+        pass
+
+
 # --- User config (`~/.config/pet4agents/config.json`) ---
 #
 # The on-disk shape is a flat JSON object. Unknown keys are preserved on write
@@ -260,6 +281,10 @@ DEFAULT_USER_CONFIG: dict = {
     # When False (default) the daemon exits after the last Claude session ends.
     # When True the daemon keeps running until `/pet-stop` (legacy behavior).
     "stay_even_no_session": False,
+    # Maximum size (bytes) each log file is allowed to reach before
+    # truncation. When a log exceeds this, roughly the newest half is kept.
+    # 0 disables truncation (unbounded growth). Default: 5 MiB.
+    "max_log_size": 5 * 1024 * 1024,
     # Per-animation per-frame duration overrides (ms). Shape:
     #   { "<animation-name>": [d0, d1, ...], ... }
     # Each list, if provided, MUST have the same length as the default

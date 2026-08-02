@@ -38,6 +38,8 @@ def _log(line: str) -> None:
         config.STATE_DIR.mkdir(parents=True, exist_ok=True)
         with config.LOG_PATH.open("a", encoding="utf-8") as f:
             f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {line}\n")
+        max_size = config.load_user_config().get("max_log_size", 5 * 1024 * 1024)
+        config.truncate_log_if_needed(config.LOG_PATH, max_size)
     except Exception:
         pass
 
@@ -47,6 +49,8 @@ def _log_install(line: str) -> None:
         config.STATE_DIR.mkdir(parents=True, exist_ok=True)
         with config.INSTALL_LOG_PATH.open("a", encoding="utf-8") as f:
             f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {line}\n")
+        max_size = config.load_user_config().get("max_log_size", 5 * 1024 * 1024)
+        config.truncate_log_if_needed(config.INSTALL_LOG_PATH, max_size)
     except Exception:
         pass
 

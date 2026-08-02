@@ -116,11 +116,20 @@ class _X11PointerProbe:
         return not ok or child_return.value != 0
 
 
+_cached_max_log_size: int | None = None
+
+
 def _log(line: str) -> None:
+    global _cached_max_log_size
     try:
         config.STATE_DIR.mkdir(parents=True, exist_ok=True)
         with config.LOG_PATH.open("a", encoding="utf-8") as f:
             f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] daemon: {line}\n")
+        if _cached_max_log_size is None:
+            _cached_max_log_size = config.load_user_config().get(
+                "max_log_size", 5 * 1024 * 1024
+            )
+        config.truncate_log_if_needed(config.LOG_PATH, _cached_max_log_size)
     except Exception:
         pass
 
@@ -427,6 +436,8 @@ class PetWindow(QWidget):
         return measured
 
     def reload_pet(self) -> None:
+        global _cached_max_log_size
+        _cached_max_log_size = None
         found = discover_pet()
         if not found:
             _log("reload_pet: no pet found")
