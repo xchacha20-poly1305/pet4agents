@@ -76,7 +76,7 @@ Per-tool overrides (`claude_pet_id` / `codex_pet_id` in config) are handled sepa
 | Event log | `~/.local/state/pet4agents/event.log` |
 | Install log | `~/.local/state/pet4agents/install.log` |
 
-`event.log` is the primary debugging surface — both relay and daemon append to it with timestamps. Hooks otherwise produce no visible output.
+`event.log` is the primary debugging surface — both relay and daemon append to it with timestamps. Hooks otherwise produce no visible output. Both `event.log` and `install.log` are auto-truncated when they exceed `max_log_size` (default 5 MiB, configurable in `config.json`; 0 disables).
 
 ## Common tasks
 
@@ -90,6 +90,7 @@ Per-tool overrides (`claude_pet_id` / `codex_pet_id` in config) are handled sepa
   ```
 - **Stop the daemon**: `/pet-stop` (or `scripts/pet_event.py daemon-stop`).
 - **Switch pets**: `/pet-set <pet-id>`, ask Codex to switch the pet, or edit `~/.config/pet4agents/config.json`.
+- **Run tests**: `uv run --with -r requirements-test.txt pytest tests/` (or `pip install -r requirements-test.txt && python -m pytest tests/`).
 - **Force a clean reinstall**: see the Uninstall block in `README.md`.
 
 ## Adding a new animation or event
