@@ -293,11 +293,10 @@ class PetWindow(QWidget):
         # Tracks live sessions: session_id -> (parent_pid, agent_type).
         # parent_pid: 0 means unknown — session is exempt from liveness check.
         # agent_type: "claude"|"codex"|"" — used for per-tool pet switching.
-        # Populated on event arrival, drained on Claude's SessionEnd or when
-        # the parent PID is observed dead (`_reap_dead_sessions`). Codex does
-        # not currently provide SessionEnd, so its clean terminal-exit path is
-        # the PID reaper. When this dict drains and `stay_even_no_session` is
-        # False (the default), the daemon schedules its own quit.
+        # Populated on event arrival, drained on SessionEnd or when the parent
+        # PID is observed dead (`_reap_dead_sessions`). When this dict drains
+        # and `stay_even_no_session` is False (the default), the daemon
+        # schedules its own quit.
         self.active_sessions: dict[str, tuple[int, str]] = {}
 
         self.anim = AnimationController()
@@ -554,8 +553,8 @@ class PetWindow(QWidget):
         """Maintain `self.active_sessions` from incoming events.
 
         - SessionEnd drains the entry (and triggers the no-session quit check).
-          Codex does not currently emit it, so Codex sessions drain via the
-          liveness reaper when the Codex process exits.
+          The liveness reaper remains the fallback when an agent exits without
+          delivering the hook.
         - Any other event with a session_id late-binds the session into the
           dict if we haven't seen it yet (covers the case where the daemon
           was restarted mid-session and SessionStart was missed). PID is

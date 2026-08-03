@@ -90,7 +90,7 @@ Per-tool overrides (`claude_pet_id` / `codex_pet_id` in config) are handled sepa
   ```
 - **Stop the daemon**: `/pet-stop` (or `scripts/pet_event.py daemon-stop`).
 - **Switch pets**: `/pet-set <pet-id>`, ask Codex to switch the pet, or edit `~/.config/pet4agents/config.json`.
-- **Run tests**: `uv run --with -r requirements-test.txt pytest tests/` (or `pip install -r requirements-test.txt && python -m pytest tests/`).
+- **Run tests**: `uv run --with-requirements requirements-test.txt pytest tests/` (or `pip install -r requirements-test.txt && python -m pytest tests/`).
 - **Force a clean reinstall**: see the Uninstall block in `README.md`.
 
 ## Adding a new animation or event

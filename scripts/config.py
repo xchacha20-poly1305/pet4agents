@@ -278,7 +278,7 @@ DEFAULT_USER_CONFIG: dict = {
     # instead of a direction — avoids jittery spinning when the pointer sits
     # on top of the pet.
     "look_deadzone": 48,
-    # When False (default) the daemon exits after the last Claude session ends.
+    # When False (default) the daemon exits after the last agent session ends.
     # When True the daemon keeps running until `/pet-stop` (legacy behavior).
     "stay_even_no_session": False,
     # Maximum size (bytes) each log file is allowed to reach before

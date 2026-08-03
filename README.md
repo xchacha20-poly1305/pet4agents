@@ -73,7 +73,7 @@ codex plugin add pet4agents@anrong-plugins
 Codex hook support is narrower than Claude Code's hook support.
 
 - The pet may appear after the first `SessionStart` hook for a thread, rather than when the `codex` process itself starts.
-- Codex does not currently provide a clean `SessionEnd` hook. With `stay_even_no_session: false`, the daemon exits after it observes that the owning Codex process has gone away.
+- Codex provides a root-session `SessionEnd` hook. With `stay_even_no_session: false`, the daemon exits shortly after the last session ends; the PID liveness poll remains the fallback for crashes, `SIGKILL`, or closed terminals.
 - Hook config schema differs too: Claude's `hooks/hooks.json` may include a top-level `description`, but Codex's `hooks/codex-hooks.json` must contain only the top-level `hooks` key.
 
 ## Behavior
@@ -159,7 +159,7 @@ Hook source detection uses the plugin's own `PET4AGENTS_AGENT` command marker pl
 ## Running tests
 
 ```bash
-uv run --with -r requirements-test.txt pytest tests/
+uv run --with-requirements requirements-test.txt pytest tests/
 ```
 
 Or without uv:

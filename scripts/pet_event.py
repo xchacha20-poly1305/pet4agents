@@ -331,11 +331,11 @@ def send_to_daemon(payload: dict, timeout: float = 1.0) -> bool:
 
 # ------------------------- Agent PID discovery -------------------------
 #
-# When a Claude session ends cleanly, Claude fires the SessionEnd hook, which
-# tells the daemon to drain the session. Codex currently has no SessionEnd
-# hook, and either agent may crash / be SIGKILL'd / have its terminal closed.
-# To recover, we ship the agent PID along with each event so the daemon can
-# poll liveness and treat a dead PID as an implicit SessionEnd.
+# When a session ends cleanly, Claude Code and Codex fire the SessionEnd hook,
+# which tells the daemon to drain the session. Either agent may still crash / be
+# SIGKILL'd / have its terminal closed. To recover, we ship the agent PID along
+# with each event so the daemon can poll liveness and treat a dead PID as an
+# implicit SessionEnd.
 #
 # `os.getppid()` alone isn't always the agent — hooks may run via a
 # shell wrapper that exits as soon as the hook returns, which would make the
