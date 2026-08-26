@@ -1,6 +1,12 @@
 # pet4agents
 
-A Linux desktop pet plugin for [Claude Code](https://claude.com/claude-code) and Codex CLI, reusing the Codex pet format. The pet sits on top of your desktop, runs while the agent works, jumps when work completes, waves when permission is requested, and can be dragged around.
+A Linux desktop pet plugin for [Claude Code](https://claude.com/claude-code) and Codex CLI, reusing the ChatGPT pet format. The pet sits on top of your desktop, runs while the agent works, jumps when work completes, waves when permission is requested, and can be dragged around.
+
+## Why this plugin
+
+ChatGPT pet is playful. However, Claude Code / Desktop does not support it. Codex CLI  supports it while requiring a terminal that supports kitty and have no full functions. Pet4agents implement pet as a plugin.
+
+Play or just watch it when your agent is working!
 
 ## Screenshot
 
