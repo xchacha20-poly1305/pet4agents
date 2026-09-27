@@ -344,8 +344,28 @@ def send_to_daemon(payload: dict, timeout: float = 1.0) -> bool:
 # If no reliable ancestor is found, return parent_pid=0 so the daemon will not
 # use a short-lived shell wrapper for liveness. Agent type can still be inferred
 # from an explicit hook command marker or hook-specific environment variables.
+#
+# Codex may also run sessions inside a shared `codex app-server` that listens on
+# a socket (the auto-started daemon is `codex app-server --listen unix://`). The
+# TUI is only a client of that server and is not in the hook's ancestry, while
+# the server outlives every TUI attached to it. Its PID says nothing about
+# whether the session is still in use, so we report parent_pid=0 and rely on
+# SessionEnd, which Codex fires when the server unloads the idle thread. A
+# stdio app-server is owned by the single client that spawned it (IDE, desktop
+# app), so its PID remains a valid liveness signal.
 
 AGENT_PROCESS_NAMES = {"claude", "codex"}
+
+
+def _read_argv(pid: int) -> list[str]:
+    try:
+        return [
+            part.decode("utf-8", "replace")
+            for part in Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\x00")
+            if part
+        ]
+    except OSError:
+        return []
 
 
 def _agent_name(pid: int) -> str:
@@ -361,22 +381,38 @@ def _agent_name(pid: int) -> str:
             return comm
     except OSError:
         pass
-    try:
-        argv = [
-            part.decode("utf-8", "replace")
-            for part in Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\x00")
-            if part
-        ]
-        if argv:
-            name = Path(argv[0]).name.lower()
-            # Strip a trailing .exe defensively for unusual wrapper builds.
-            if name.endswith(".exe"):
-                name = name[:-4]
-            if name in AGENT_PROCESS_NAMES:
-                return name
-    except OSError:
-        pass
+    argv = _read_argv(pid)
+    if argv:
+        name = Path(argv[0]).name.lower()
+        # Strip a trailing .exe defensively for unusual wrapper builds.
+        name = name.removesuffix(".exe")
+        if name in AGENT_PROCESS_NAMES:
+            return name
     return ""
+
+
+STDIO_LISTEN_URLS = {"stdio", "stdio://"}
+
+
+def _is_shared_app_server(pid: int) -> bool:
+    """True if pid is a `codex app-server` serving clients over a socket.
+
+    Codex's app-server defaults to stdio; any other `--listen` URL (the
+    daemon's `unix://`, `ws://...`) means clients connect and disconnect
+    independently of the server process.
+    """
+    argv = _read_argv(pid)
+    if len(argv) < 2 or argv[1] != "app-server":
+        return False
+    args = argv[2:]
+    for i, arg in enumerate(args):
+        if arg == "--stdio":
+            return False
+        if arg == "--listen" and i + 1 < len(args):
+            return args[i + 1] not in STDIO_LISTEN_URLS
+        if arg.startswith("--listen="):
+            return arg.split("=", 1)[1] not in STDIO_LISTEN_URLS
+    return False
 
 
 def _is_agent_pid(pid: int) -> bool:
@@ -413,7 +449,8 @@ def find_agent_info() -> tuple[int, str]:
     """Walk up the process tree to find the Claude Code or Codex process.
 
     Returns (pid, agent_type) where agent_type is "claude"|"codex"|"".
-    Returns (0, inferred_agent_type) if no reliable liveness PID is found."""
+    Returns (0, inferred_agent_type) if no reliable liveness PID is found,
+    and (0, "codex") when the hook runs inside a shared Codex app-server."""
     fallback_agent_type = _infer_agent_type_from_env()
     try:
         if not Path("/proc").exists():
@@ -428,6 +465,8 @@ def find_agent_info() -> tuple[int, str]:
             seen.add(pid)
             name = _agent_name(pid)
             if name:
+                if name == "codex" and _is_shared_app_server(pid):
+                    return 0, name
                 return pid, name
             ppid = _read_ppid(pid)
             if ppid <= 0:
@@ -551,6 +590,7 @@ def cmd_event(event_name: str) -> None:
         "cwd": hook_data.get("cwd", os.getcwd()),
         # Daemon polls this PID for liveness so it can drain the session even
         # if SessionEnd never fires (agent crash / SIGKILL / terminal closed).
+        # 0 when no process's lifetime matches the session's (see above).
         "parent_pid": agent_pid,
         # Which tool fired this event — used for per-tool pet selection.
         "agent_type": agent_type,

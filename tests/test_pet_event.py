@@ -92,6 +92,37 @@ class TestAgentName:
         assert pet_event._is_agent_pid(101) is False
 
 
+class TestIsSharedAppServer:
+    def test_managed_daemon_is_shared(self, fake_proc):
+        fake_proc(100, comm="codex", argv=["/opt/codex", "app-server", "--listen", "unix://", "--managed-daemon"])
+        assert pet_event._is_shared_app_server(100) is True
+
+    def test_remote_control_daemon_is_shared(self, fake_proc):
+        fake_proc(100, comm="codex", argv=["/opt/codex", "app-server", "--remote-control", "--listen", "unix://"])
+        assert pet_event._is_shared_app_server(100) is True
+
+    def test_listen_equals_form(self, fake_proc):
+        fake_proc(100, comm="codex", argv=["/opt/codex", "app-server", "--listen=ws://127.0.0.1:4500"])
+        assert pet_event._is_shared_app_server(100) is True
+
+    def test_default_stdio_is_not_shared(self, fake_proc):
+        fake_proc(100, comm="codex", argv=["/opt/codex", "app-server"])
+        assert pet_event._is_shared_app_server(100) is False
+
+    def test_explicit_stdio_is_not_shared(self, fake_proc):
+        fake_proc(100, comm="codex", argv=["/opt/codex", "app-server", "--listen", "stdio://"])
+        fake_proc(101, comm="codex", argv=["/opt/codex", "app-server", "--stdio"])
+        assert pet_event._is_shared_app_server(100) is False
+        assert pet_event._is_shared_app_server(101) is False
+
+    def test_tui_is_not_shared(self, fake_proc):
+        fake_proc(100, comm="codex", argv=["/opt/codex", "--no-daemon"])
+        assert pet_event._is_shared_app_server(100) is False
+
+    def test_missing_pid_is_not_shared(self, fake_proc):
+        assert pet_event._is_shared_app_server(4242) is False
+
+
 class TestReadPpid:
     def test_reads_ppid(self, fake_proc):
         fake_proc(200, comm="bash", ppid=42)
@@ -183,6 +214,19 @@ class TestFindAgentInfo:
         fake_proc(250, comm="claude", ppid=1)
         monkeypatch.setattr(pet_event.os, "getppid", lambda: 50)
         assert pet_event.find_agent_info() == (0, "")
+
+    def test_shared_codex_app_server_yields_no_liveness_pid(self, fake_proc, monkeypatch):
+        """Hooks under the Codex daemon must not track the daemon's PID."""
+        fake_proc(70, comm="codex", argv=["/opt/codex", "app-server", "--listen", "unix://"], ppid=1)
+        fake_proc(71, comm="sh", ppid=70)
+        monkeypatch.setattr(pet_event.os, "getppid", lambda: 71)
+        assert pet_event.find_agent_info() == (0, "codex")
+
+    def test_stdio_codex_app_server_is_tracked(self, fake_proc, monkeypatch):
+        fake_proc(80, comm="codex", argv=["/opt/codex", "app-server"], ppid=1)
+        fake_proc(81, comm="sh", ppid=80)
+        monkeypatch.setattr(pet_event.os, "getppid", lambda: 81)
+        assert pet_event.find_agent_info() == (80, "codex")
 
     def test_find_agent_pid_is_the_first_element(self, fake_proc, monkeypatch):
         fake_proc(60, comm="claude", ppid=1)
