@@ -87,13 +87,6 @@ class TestLookCells:
 
 
 class TestAnimationTable:
-    def test_every_animation_is_classified(self):
-        classified = config.LOOPING_STATES | config.ONESHOT_STATES
-        assert set(config.ANIMATIONS) == classified
-
-    def test_looping_and_oneshot_are_disjoint(self):
-        assert not (config.LOOPING_STATES & config.ONESHOT_STATES)
-
     def test_idle_is_present(self):
         """`AnimationController._spec` falls back to `idle` for unknown names."""
         assert "idle" in config.ANIMATIONS
@@ -114,50 +107,87 @@ class TestAnimationTable:
         for spec in config.ANIMATIONS.values():
             assert spec["row"] < config.LOOK_FIRST_ROW
 
+    def test_state_repeats_is_positive(self):
+        assert isinstance(config.STATE_REPEATS, int) and config.STATE_REPEATS > 0
+
 
 # ── event tables ──────────────────────────────────────────────────────────
 
 
+def _mapped_events():
+    return set(config.STATES) | set(config.RESOLVES) | set(config.ONESHOTS)
+
+
+def _registered_hooks(name):
+    return set(json.loads((config.PLUGIN_ROOT / "hooks" / name).read_text("utf-8"))["hooks"])
+
+
+# Events only one agent has.
+CODEX_ONLY_EVENTS = {"Interrupt"}
+
+
 class TestEventTables:
-    def test_open_animations_are_looping(self):
-        for event, anim in config.INTERVAL_OPEN.items():
+    def test_state_animations_exist(self):
+        for event, anim in config.STATES.items():
             assert anim in config.ANIMATIONS, event
-            assert anim in config.LOOPING_STATES or anim in config.ONESHOT_STATES
+        for event, (before, after) in config.RESOLVES.items():
+            assert before in config.ANIMATIONS and after in config.ANIMATIONS, event
+
+    def test_states_follow_the_codex_tui(self):
+        """The TUI's four pet states, triggered at the same moments."""
+        assert set(config.STATES.values()) <= {"idle", "running", "waiting", "review", "failed"}
+        assert config.STATES["UserPromptSubmit"] == "running"
+        assert config.STATES["PermissionRequest"] == "waiting"
+        assert config.STATES["Stop"] == "review"
+        assert config.STATES["StopFailure"] == "failed"
+
+    def test_resolves_only_leave_waiting(self):
+        """Resolving events fire for every tool call; they may only end a
+        needs-input state, never override running/review/failed."""
+        for event, (before, _after) in config.RESOLVES.items():
+            assert before == "waiting", event
+        assert not set(config.RESOLVES) & set(config.STATES)
 
     def test_oneshot_animations_exist(self):
         for event, anim in config.ONESHOTS.items():
             assert anim in config.ANIMATIONS, event
 
-    def test_close_sets_reference_real_openers(self):
-        """Everything an event claims to close must actually open an interval,
-        otherwise the entry is dead weight that can never match a stack entry."""
-        for event, closes in config.INTERVAL_CLOSE.items():
-            for opener in closes:
-                assert opener in config.INTERVAL_OPEN, f"{event} closes non-opener {opener}"
+    @pytest.mark.parametrize("name", ["hooks.json", "codex-hooks.json"])
+    def test_every_registered_hook_is_mapped(self, name):
+        """A hook no table uses only costs a process spawn per event."""
+        registered = _registered_hooks(name)
+        assert registered <= _mapped_events(), registered - _mapped_events()
 
-    def test_every_opener_is_closed_by_something(self):
-        closable = set().union(*config.INTERVAL_CLOSE.values())
-        assert set(config.INTERVAL_OPEN) <= closable
+    def test_claude_hooks_cover_every_mapped_event(self):
+        missing = _mapped_events() - CODEX_ONLY_EVENTS - _registered_hooks("hooks.json")
+        assert not missing, missing
 
-    def test_terminal_events_close_all_openers(self):
-        for event in ("Stop", "StopFailure", "SessionEnd"):
-            assert config.INTERVAL_CLOSE[event] == set(config.INTERVAL_OPEN), event
+    def test_codex_only_events_are_registered_for_codex(self):
+        assert CODEX_ONLY_EVENTS <= _registered_hooks("codex-hooks.json")
+        assert not CODEX_ONLY_EVENTS & _registered_hooks("hooks.json")
 
-    def test_no_event_closes_itself(self):
-        for event, closes in config.INTERVAL_CLOSE.items():
-            assert event not in closes, event
 
-    def test_hooks_json_covers_every_mapped_event(self):
-        hooks = json.loads((config.PLUGIN_ROOT / "hooks/hooks.json").read_text("utf-8"))
-        registered = set(hooks["hooks"])
-        mapped = set(config.INTERVAL_OPEN) | set(config.INTERVAL_CLOSE) | set(config.ONESHOTS)
-        assert mapped <= registered, mapped - registered
+class TestNoiseEvents:
+    @pytest.mark.parametrize("data,noise", [
+        ({"agent_type": ""}, True),
+        ({}, True),
+        ({"agent_type": "general-purpose"}, False),
+        ({"agent_type": "default"}, False),  # Codex's role name
+    ])
+    def test_subagent_stop_needs_an_agent_type(self, data, noise):
+        assert config.is_noise_event("SubagentStop", data) is noise
 
-    def test_codex_hooks_are_a_subset_of_claude_hooks(self):
-        root = config.PLUGIN_ROOT
-        claude = json.loads((root / "hooks/hooks.json").read_text("utf-8"))
-        codex = json.loads((root / "hooks/codex-hooks.json").read_text("utf-8"))
-        assert set(codex["hooks"]) <= set(claude["hooks"])
+    @pytest.mark.parametrize("kind,noise", [
+        ("permission_prompt", True),
+        ("idle_prompt", False),
+        (None, False),
+    ])
+    def test_notification_types(self, kind, noise):
+        assert config.is_noise_event("Notification", {"notification_type": kind}) is noise
+
+    def test_other_events_are_never_noise(self):
+        assert config.is_noise_event("Stop", {}) is False
+        assert config.is_noise_event("SubagentStart", {"agent_type": ""}) is False
 
     def test_codex_hooks_file_has_only_hooks_key(self):
         """Codex's schema is stricter than Claude's — no top-level extras."""
@@ -213,6 +243,9 @@ def _reload_config_with(tmp_root, overrides):
     return cfg_dir
 
 
+DEFAULT_IDLE = [1680, 660, 660, 840, 840, 1920]
+
+
 class TestAnimationDurationOverrides:
     @pytest.fixture()
     def reload_config(self, tmp_path, monkeypatch):
@@ -236,7 +269,7 @@ class TestAnimationDurationOverrides:
 
     def test_wrong_length_ignored(self, reload_config):
         mod = reload_config({"idle": [10, 20]})
-        assert mod.ANIMATIONS["idle"]["durations"] == [280, 110, 110, 140, 140, 320]
+        assert mod.ANIMATIONS["idle"]["durations"] == DEFAULT_IDLE
 
     def test_unknown_animation_ignored(self, reload_config):
         mod = reload_config({"nope": [1, 2, 3]})
@@ -248,17 +281,17 @@ class TestAnimationDurationOverrides:
     )
     def test_invalid_entries_reject_whole_list(self, reload_config, bad):
         mod = reload_config({"idle": bad})
-        assert mod.ANIMATIONS["idle"]["durations"] == [280, 110, 110, 140, 140, 320]
+        assert mod.ANIMATIONS["idle"]["durations"] == DEFAULT_IDLE
 
     def test_non_dict_override_ignored(self, reload_config):
         mod = reload_config(["idle"])
-        assert mod.ANIMATIONS["idle"]["durations"] == [280, 110, 110, 140, 140, 320]
+        assert mod.ANIMATIONS["idle"]["durations"] == DEFAULT_IDLE
 
     def test_non_list_value_ignored(self, reload_config):
         mod = reload_config({"idle": 100})
-        assert mod.ANIMATIONS["idle"]["durations"] == [280, 110, 110, 140, 140, 320]
+        assert mod.ANIMATIONS["idle"]["durations"] == DEFAULT_IDLE
 
     def test_one_animation_override_leaves_others_alone(self, reload_config):
         mod = reload_config({"waving": [1, 2, 3, 4]})
         assert mod.ANIMATIONS["waving"]["durations"] == [1, 2, 3, 4]
-        assert mod.ANIMATIONS["idle"]["durations"] == [280, 110, 110, 140, 140, 320]
+        assert mod.ANIMATIONS["idle"]["durations"] == DEFAULT_IDLE

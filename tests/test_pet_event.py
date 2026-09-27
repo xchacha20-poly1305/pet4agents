@@ -5,6 +5,7 @@ a real Unix socket, runtime-state bookkeeping, and the `set-pet` subcommand.
 """
 from __future__ import annotations
 
+import io
 import json
 import os
 import socket
@@ -313,6 +314,26 @@ class TestSendToDaemon:
                 assert conn.recv(4096).decode("utf-8").endswith("\n")
         finally:
             srv.close()
+
+
+class TestCmdEventNoise:
+    @pytest.fixture()
+    def run_event(self, monkeypatch):
+        monkeypatch.setattr(pet_event, "find_agent_info", lambda: (0, "claude"))
+
+        def _run(event, hook_data):
+            monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(hook_data)))
+            pet_event.cmd_event(event)
+
+        return _run
+
+    def test_noise_is_dropped_before_the_daemon(self, fake_daemon, run_event):
+        run_event("SubagentStop", {"session_id": "s1", "agent_type": ""})
+        run_event("Notification", {"session_id": "s1", "notification_type": "permission_prompt"})
+        run_event("SubagentStop", {"session_id": "s1", "agent_type": "claude"})
+        received = fake_daemon.wait_for(1)
+        time.sleep(0.1)
+        assert [m["event"] for m in received] == ["SubagentStop"]
 
 
 # ── runtime state ─────────────────────────────────────────────────────────

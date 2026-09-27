@@ -5,15 +5,15 @@ plays per-frame animations from a Codex-format spritesheet, and listens for
 event JSON over a Unix socket sent by pet_event.py.
 
 State machine has three layers, in priority order:
-  drag_state    — set while the mouse is dragging the pet
-  oneshot_state — single-pass overlay (waving/jumping/failed/review)
-  base_stack    — stack of looping intervals, top is the active loop;
-                  bottom is always (None, "idle") and never popped
+  drag_state    — set while the mouse is dragging the pet; loops while held
+  oneshot_state — single-pass overlay (e.g. waving/jumping)
+  state         — the agent's current state (idle/running/waiting/review/failed)
 
-Events open intervals (push onto base_stack), close intervals (pop matching
-entries off the top), and/or play a oneshot. See config.INTERVAL_OPEN /
-INTERVAL_CLOSE / ONESHOTS for the per-event tables. When a oneshot finishes,
-we fall back to base_stack[-1]. drag_state is cleared on mouse release.
+Events switch the state (config.STATES), switch it only from a given state
+(config.RESOLVES), and/or play a oneshot (config.ONESHOTS). A state's
+animation plays config.STATE_REPEATS times and then settles into the idle
+loop while the state is kept. When a oneshot finishes, we fall back to the
+state. drag_state is cleared on mouse release.
 """
 from __future__ import annotations
 
@@ -218,22 +218,41 @@ def discover_pet() -> tuple[Path, dict] | None:
 # ----------------------- Animation -----------------------
 
 class AnimationController:
-    """Tracks frame index + remaining frame time. Owns the active animation name."""
+    """Tracks the frame index of the active animation.
+
+    `name` is the animation the state machine asked for. It plays `repeats`
+    full cycles (None = forever); after that a oneshot reports completion and
+    anything else settles: `shown` becomes "idle" and the idle loop plays
+    while `name` is kept, so the caller still sees the state it requested."""
 
     def __init__(self) -> None:
         self.name: str = "idle"
-        self.frame_index: int = 0
         self.is_oneshot: bool = False
+        self.repeats: int | None = None
+        self.frame_index: int = 0
+        self.cycles: int = 0
+        self.settled: bool = False
 
-    def set(self, name: str, oneshot: bool) -> None:
-        if name == self.name and oneshot == self.is_oneshot:
+    def set(self, name: str, oneshot: bool, repeats: int | None = None,
+            restart: bool = False, settled: bool = False) -> None:
+        """Switch to `name`. `settled` starts it already settled, for a state
+        that finished its cycles before a oneshot or drag covered it."""
+        if not restart and name == self.name and oneshot == self.is_oneshot:
             return
         self.name = name
         self.is_oneshot = oneshot
+        self.repeats = repeats
         self.frame_index = 0
+        self.cycles = 0
+        self.settled = settled
+
+    @property
+    def shown(self) -> str:
+        """The animation actually on screen."""
+        return "idle" if self.settled else self.name
 
     def _spec(self) -> dict:
-        return config.ANIMATIONS.get(self.name, config.ANIMATIONS["idle"])
+        return config.ANIMATIONS.get(self.shown, config.ANIMATIONS["idle"])
 
     def current_row(self) -> int:
         return self._spec()["row"]
@@ -244,13 +263,21 @@ class AnimationController:
         return int(durs[idx])
 
     def advance(self) -> bool:
-        """Advance to the next frame. Returns True if the animation finished
-        a full cycle (caller should resolve fallback for oneshots)."""
+        """Advance to the next frame. Returns True when a oneshot has played
+        its last cycle (caller should fall back to the base state)."""
         durs = self._spec()["durations"]
         self.frame_index += 1
-        if self.frame_index >= len(durs):
-            self.frame_index = 0
+        if self.frame_index < len(durs):
+            return False
+        self.frame_index = 0
+        if self.settled or self.repeats is None:
+            return False
+        self.cycles += 1
+        if self.cycles < self.repeats:
+            return False
+        if self.is_oneshot:
             return True
+        self.settled = True
         return False
 
 
@@ -277,7 +304,10 @@ class PetWindow(QWidget):
         self.atlas: QPixmap = QPixmap()
         self._frame_buf = QPixmap(config.CELL_W, config.CELL_H)
 
-        self.base_stack: list[tuple[str | None, str]] = [(None, "idle")]
+        self.state: str = "idle"
+        # The state's animation already played its STATE_REPEATS cycles, so
+        # returning to it after a oneshot or drag shows the idle loop.
+        self.state_settled: bool = False
         self.oneshot_state: str | None = None
         self.drag_state: str | None = None
         # v2 look layer: (row, col) of the look cell to draw instead of the
@@ -453,52 +483,45 @@ class PetWindow(QWidget):
             return self.drag_state, False  # drag states loop while held
         if self.oneshot_state:
             return self.oneshot_state, True
-        return self.base_stack[-1][1], False
+        return self.state, False
 
-    def _sync_anim(self) -> None:
+    def _sync_anim(self, restart: bool = False) -> None:
+        """Point the controller at the active animation. `restart` replays it
+        from the first frame even if it is already the active one."""
         name, oneshot = self._active_animation()
-        if name != self.anim.name or oneshot != self.anim.is_oneshot:
-            self.anim.set(name, oneshot)
-
-    def _close_intervals(self, close_set: set[str]) -> None:
-        """Pop entries off the top of base_stack while their opener is in
-        close_set. Stops at the first non-matching entry to preserve nesting,
-        and never pops the sentinel (None, "idle") at the bottom."""
-        while len(self.base_stack) > 1:
-            opener, _ = self.base_stack[-1]
-            if opener in close_set:
-                self.base_stack.pop()
-            else:
-                break
+        if self.drag_state:
+            self.anim.set(name, oneshot, None, restart=restart)
+        elif oneshot:
+            self.anim.set(name, oneshot, 1, restart=restart)
+        else:
+            repeats = None if name == "idle" else config.STATE_REPEATS
+            self.anim.set(name, oneshot, repeats, restart=restart,
+                          settled=self.state_settled)
 
     def apply_event(self, event_name: str, session_id: str = "", parent_pid: int = 0, agent_type: str = "") -> None:
         # Session lifecycle bookkeeping runs first so the
         # `stay_even_no_session` check can see an up-to-date set even for
-        # events that don't appear in any of the animation tables.
+        # events that don't change the animation.
         self._track_session(event_name, session_id, parent_pid, agent_type)
 
-        # Ignore events that don't appear in any of the three tables. This
-        # also covers internal/unknown messages.
-        if (event_name not in config.INTERVAL_CLOSE
-                and event_name not in config.INTERVAL_OPEN
-                and event_name not in config.ONESHOTS):
+        new_state = config.STATES.get(event_name)
+        resolve = config.RESOLVES.get(event_name)
+        if resolve and self.state == resolve[0]:
+            new_state = resolve[1]
+        oneshot = config.ONESHOTS.get(event_name)
+        if new_state is None and oneshot is None:
             return
 
-        # Order matters: close first (so an event can close an outer interval
-        # before opening its own), then open, then trigger any oneshot flash.
-        close_set = config.INTERVAL_CLOSE.get(event_name)
-        if close_set:
-            self._close_intervals(close_set)
-
-        open_anim = config.INTERVAL_OPEN.get(event_name)
-        if open_anim:
-            self.base_stack.append((event_name, open_anim))
-
-        oneshot = config.ONESHOTS.get(event_name)
+        if new_state is not None:
+            self.state = new_state
+            self.state_settled = False
         if oneshot:
             self.oneshot_state = oneshot
 
-        self._sync_anim()
+        # Whatever changed replays from its first frame, even when it is the
+        # animation already showing (a new turn right after an interrupted
+        # one). A drag in progress keeps its own frames.
+        self._sync_anim(restart=not self.drag_state)
         self._restart_timer()
 
     def _restart_timer(self) -> None:
@@ -659,22 +682,29 @@ class PetWindow(QWidget):
     # ----- ticking -----
 
     def _tick(self) -> None:
+        self._advance_frame()
+        if os.environ.get("PET4AGENTS_DEBUG"):
+            _log(f"tick anim={self.anim.name} shown={self.anim.shown} "
+                 f"frame={self.anim.frame_index} drag={self.drag_state}")
+        self._render_current_frame()
+        self.timer.start(self.anim.current_duration_ms())
+
+    def _advance_frame(self) -> None:
+        """Move the state machine one frame forward (no Qt involved)."""
         # If active animation changed underneath us (e.g. drag state flipped
         # during a previous tick interval), switch first; otherwise advance.
         name, oneshot = self._active_animation()
         if self.anim.name != name or self.anim.is_oneshot != oneshot:
-            self.anim.set(name, oneshot)
+            self._sync_anim()
         else:
             finished = self.anim.advance()
-            if finished and self.anim.is_oneshot and self.anim.name == self.oneshot_state:
+            if (self.anim.settled and not self.drag_state
+                    and not self.oneshot_state):
+                self.state_settled = True
+            if finished and self.anim.name == self.oneshot_state:
                 self.oneshot_state = None
                 # Re-resolve after clearing oneshot.
-                name2, oneshot2 = self._active_animation()
-                self.anim.set(name2, oneshot2)
-        if os.environ.get("PET4AGENTS_DEBUG"):
-            _log(f"tick anim={self.anim.name} frame={self.anim.frame_index} drag={self.drag_state}")
-        self._render_current_frame()
-        self.timer.start(self.anim.current_duration_ms())
+                self._sync_anim()
 
     # ----- v2 look directions -----
 
@@ -692,14 +722,15 @@ class PetWindow(QWidget):
         )
 
     def _look_ready(self) -> bool:
-        """Look poses only stand in for the plain idle loop — never during a
-        drag, a oneshot flash, or while any interval is open, and never for v1
-        pets (their atlas has no look rows)."""
+        """Look poses only stand in for the idle loop — never during a drag,
+        a oneshot flash, or while a state's animation is still playing (a
+        settled state shows idle and qualifies), and never for v1 pets
+        (their atlas has no look rows)."""
         if self.sprite_version != config.SPRITE_V2 or self.atlas.isNull():
             return False
         if self.drag_state or self.oneshot_state:
             return False
-        return self.base_stack[-1][1] == "idle"
+        return self.anim.shown == "idle"
 
     def _update_look(self) -> None:
         """Pick the look cell for the current pointer position, if any."""

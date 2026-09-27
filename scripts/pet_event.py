@@ -582,6 +582,9 @@ def cmd_event(event_name: str) -> None:
         except Exception:
             hook_data = {"raw": raw[:200]}
 
+    if config.is_noise_event(event_name, hook_data):
+        return
+
     agent_pid, agent_type = find_agent_info()
     payload = {
         "kind": "event",

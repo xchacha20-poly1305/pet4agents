@@ -33,17 +33,6 @@
         ]
       }
     ],
-    "PreToolUse": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "PET4AGENTS_AGENT=codex \"${PLUGIN_ROOT}/scripts/pet_event.py\" PreToolUse",
-            "timeout": 5
-          }
-        ]
-      }
-    ],
     "PostToolUse": [
       {
         "hooks": [
@@ -61,17 +50,6 @@
           {
             "type": "command",
             "command": "PET4AGENTS_AGENT=codex \"${PLUGIN_ROOT}/scripts/pet_event.py\" PreCompact",
-            "timeout": 5
-          }
-        ]
-      }
-    ],
-    "PostCompact": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "PET4AGENTS_AGENT=codex \"${PLUGIN_ROOT}/scripts/pet_event.py\" PostCompact",
             "timeout": 5
           }
         ]
@@ -105,6 +83,17 @@
           {
             "type": "command",
             "command": "PET4AGENTS_AGENT=codex \"${PLUGIN_ROOT}/scripts/pet_event.py\" Stop",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Interrupt": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "PET4AGENTS_AGENT=codex \"${PLUGIN_ROOT}/scripts/pet_event.py\" Interrupt",
             "timeout": 5
           }
         ]

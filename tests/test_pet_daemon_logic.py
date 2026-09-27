@@ -202,19 +202,44 @@ class TestAnimationController:
         a.frame_index = 999
         assert a.current_duration_ms() == config.ANIMATIONS["idle"]["durations"][-1]
 
-    def test_advance_reports_cycle_completion(self):
+    def test_oneshot_reports_completion_after_its_cycles(self):
         a = pet_daemon.AnimationController()
-        n = len(config.ANIMATIONS["idle"]["durations"])
+        a.set("waving", True, repeats=1)
+        n = len(config.ANIMATIONS["waving"]["durations"])
         results = [a.advance() for _ in range(n)]
-        assert results[:-1] == [False] * (n - 1)
-        assert results[-1] is True
+        assert results == [False] * (n - 1) + [True]
         assert a.frame_index == 0
 
-    def test_advance_loops_indefinitely(self):
+    def test_unlimited_animation_loops_indefinitely(self):
         a = pet_daemon.AnimationController()
         n = len(config.ANIMATIONS["idle"]["durations"])
-        completions = sum(a.advance() for _ in range(n * 5))
-        assert completions == 5
+        assert not any(a.advance() for _ in range(n * 5))
+        assert a.shown == "idle" and not a.settled
+
+    def test_interval_settles_into_idle_after_repeats(self):
+        a = pet_daemon.AnimationController()
+        a.set("running", False, repeats=3)
+        n = len(config.ANIMATIONS["running"]["durations"])
+        for _ in range(n * 3 - 1):
+            assert a.advance() is False
+            assert a.shown == "running"
+        assert a.advance() is False, "an interval never reports completion"
+        assert (a.name, a.shown, a.frame_index) == ("running", "idle", 0)
+        assert a.current_row() == config.ANIMATIONS["idle"]["row"]
+        idle_n = len(config.ANIMATIONS["idle"]["durations"])
+        assert not any(a.advance() for _ in range(idle_n * 3))
+        assert a.shown == "idle"
+
+    def test_restart_replays_a_settled_animation(self):
+        a = pet_daemon.AnimationController()
+        a.set("running", False, repeats=1)
+        for _ in config.ANIMATIONS["running"]["durations"]:
+            a.advance()
+        assert a.settled
+        a.set("running", False, repeats=1)
+        assert a.settled, "same state without restart keeps going"
+        a.set("running", False, repeats=1, restart=True)
+        assert (a.shown, a.frame_index) == ("running", 0)
 
 
 # ── state machine ─────────────────────────────────────────────────────────
@@ -225,8 +250,8 @@ class FakeWindow:
 
     _active_animation = pet_daemon.PetWindow._active_animation
     _sync_anim = pet_daemon.PetWindow._sync_anim
-    _close_intervals = pet_daemon.PetWindow._close_intervals
     apply_event = pet_daemon.PetWindow.apply_event
+    _advance_frame = pet_daemon.PetWindow._advance_frame
     _track_session = pet_daemon.PetWindow._track_session
     _should_quit_now = pet_daemon.PetWindow._should_quit_now
     _reap_dead_sessions = pet_daemon.PetWindow._reap_dead_sessions
@@ -234,7 +259,8 @@ class FakeWindow:
     _NO_SESSION_QUIT_DELAY_MS = pet_daemon.PetWindow._NO_SESSION_QUIT_DELAY_MS
 
     def __init__(self):
-        self.base_stack = [(None, "idle")]
+        self.state = "idle"
+        self.state_settled = False
         self.oneshot_state = ""
         self.drag_state = ""
         self.anim = pet_daemon.AnimationController()
@@ -253,9 +279,9 @@ class FakeWindow:
     def _switch_pet_for_agent(self, agent_type):
         self.switched_to.append(agent_type)
 
-    @property
-    def stack_names(self):
-        return [name for _opener, name in self.base_stack]
+    def play(self, events, session="s1"):
+        for ev in events:
+            self.apply_event(ev, session)
 
 
 @pytest.fixture()
@@ -263,92 +289,143 @@ def win(paths):
     return FakeWindow()
 
 
-class TestIntervalStack:
+class TestStates:
+    """Sequences below are the hook orders recorded from a live Claude Code
+    2.1.283 session."""
+
     def test_starts_idle(self, win):
         assert win._active_animation() == ("idle", False)
 
-    def test_prompt_opens_running(self, win):
-        win.apply_event("UserPromptSubmit", "s1")
-        assert win._active_animation() == ("running", False)
+    def test_plain_turn(self, win):
+        win.play(["UserPromptSubmit"])
+        assert win.state == "running"
+        win.play(["PostToolUse"])
+        assert win.state == "running", "tool calls don't change the state"
+        win.play(["Stop"])
+        assert win.state == "review" and win.oneshot_state == ""
 
-    def test_tool_nests_inside_prompt(self, win):
-        win.apply_event("UserPromptSubmit", "s1")
-        win.apply_event("PreToolUse", "s1")
-        assert win._active_animation() == ("waiting", False)
-        win.apply_event("PostToolUse", "s1")
-        assert win._active_animation() == ("running", False), "should fall back to outer loop"
+    def test_approved_permission_resumes_running(self, win):
+        win.play(["UserPromptSubmit", "PermissionRequest"])
+        assert win.state == "waiting"
+        win.play(["PostToolUse"])
+        assert win.state == "running"
+        win.play(["Stop"])
+        assert win.state == "review"
 
-    def test_repeated_tool_opens_stack_up(self, win):
-        win.apply_event("UserPromptSubmit", "s1")
-        win.apply_event("PreToolUse", "s1")
-        win.apply_event("PreToolUse", "s1")
-        assert win.stack_names == ["idle", "running", "waiting", "waiting"]
+    def test_denied_permission_waits_for_the_next_prompt(self, win):
+        """A UI deny fires no hook; the next prompt replaces the state."""
+        win.play(["UserPromptSubmit", "PermissionRequest"])
+        assert win.state == "waiting"
+        win.play(["UserPromptSubmit"])
+        assert win.state == "running"
 
-    def test_close_drains_every_matching_entry_at_the_top(self, win):
-        """`_close_intervals` pops *while* the top opener matches, so a run of
-        identical openers collapses in one close."""
-        win.apply_event("UserPromptSubmit", "s1")
-        win.apply_event("PreToolUse", "s1")
-        win.apply_event("PreToolUse", "s1")
-        win.apply_event("PostToolUse", "s1")
-        assert win.stack_names == ["idle", "running"]
+    def test_auto_mode_denial_resumes_and_flashes(self, win):
+        win.play(["UserPromptSubmit", "PermissionRequest", "PermissionDenied"])
+        assert win.state == "running" and win.oneshot_state == "failed"
 
-    def test_stop_tears_everything_down(self, win):
-        for ev in ("UserPromptSubmit", "PreToolUse", "PreToolUse"):
-            win.apply_event(ev, "s1")
-        win.apply_event("Stop", "s1")
-        assert win.stack_names == ["idle"]
-        assert win.oneshot_state == "jumping"
+    def test_background_subagent_tools_leave_review_alone(self, win):
+        win.play(["UserPromptSubmit", "SubagentStart", "PostToolUse", "Stop",
+                  "PostToolUse", "SubagentStop"])
+        assert win.state == "review"
 
-    def test_permission_request_loops_until_tool_runs(self, win):
-        win.apply_event("UserPromptSubmit", "s1")
-        win.apply_event("PermissionRequest", "s1")
-        assert win._active_animation() == ("waving", False)
-        win.apply_event("PreToolUse", "s1")
-        assert win.stack_names == ["idle", "running", "waiting"]
+    def test_stop_failure(self, win):
+        win.play(["UserPromptSubmit", "StopFailure"])
+        assert win.state == "failed"
 
-    def test_permission_denied_closes_and_flashes_failed(self, win):
-        win.apply_event("PermissionRequest", "s1")
-        win.apply_event("PermissionDenied", "s1")
-        assert win.stack_names == ["idle"]
-        assert win.oneshot_state == "failed"
+    def test_codex_interrupt_returns_to_idle(self, win):
+        win.play(["UserPromptSubmit", "Interrupt"])
+        assert win.state == "idle"
 
     def test_elicitation_pair(self, win):
-        win.apply_event("Elicitation", "s1")
-        assert win._active_animation() == ("waving", False)
-        win.apply_event("ElicitationResult", "s1")
-        assert win.stack_names == ["idle"]
+        win.play(["UserPromptSubmit", "Elicitation"])
+        assert win.state == "waiting"
+        win.play(["ElicitationResult"])
+        assert win.state == "running"
 
-    def test_compaction_pair(self, win):
-        win.apply_event("PreCompact", "s1")
-        assert win._active_animation() == ("waiting", False)
-        win.apply_event("PostCompact", "s1")
-        assert win.stack_names == ["idle"]
+    def test_manual_compaction(self, win):
+        win.play(["PreCompact"])
+        assert win.state == "running"
 
-    def test_close_stops_at_first_non_match(self, win):
-        """PostToolUse must not pop past the enclosing UserPromptSubmit."""
-        win.apply_event("UserPromptSubmit", "s1")
-        win.apply_event("PreToolUse", "s1")
-        win.apply_event("PostToolUse", "s1")
-        win.apply_event("PostToolUse", "s1")  # spurious extra close
-        assert win.stack_names == ["idle", "running"]
+    def test_idle_notification_needs_input(self, win):
+        win.play(["UserPromptSubmit", "Stop", "Notification"])
+        assert win.state == "waiting"
 
-    def test_sentinel_is_never_popped(self, win):
-        for _ in range(5):
-            win.apply_event("Stop", "s1")
-        assert win.base_stack == [(None, "idle")]
+    def test_session_end_returns_to_idle(self, win):
+        win.play(["UserPromptSubmit", "SessionEnd"])
+        assert win.state == "idle" and win.oneshot_state == "waving"
 
     def test_unknown_event_is_ignored(self, win):
-        win.apply_event("UserPromptSubmit", "s1")
-        before = list(win.base_stack)
-        win.apply_event("SomeFutureHook", "s1")
-        assert win.base_stack == before and win.oneshot_state == ""
+        win.play(["UserPromptSubmit"])
+        win.anim.advance()
+        win.play(["SomeFutureHook"])
+        assert win.state == "running" and win.oneshot_state == ""
+        assert win.anim.frame_index == 1
 
-    def test_post_tool_use_failure_closes_and_flashes(self, win):
-        win.apply_event("PreToolUse", "s1")
-        win.apply_event("PostToolUseFailure", "s1")
-        assert win.stack_names == ["idle"]
-        assert win.oneshot_state == "failed"
+    def test_resolving_event_outside_waiting_changes_nothing(self, win):
+        win.play(["UserPromptSubmit"])
+        win.anim.advance()
+        win.play(["PostToolUse"])
+        assert win.anim.frame_index == 1
+
+    def test_post_tool_use_failure_flashes_inside_the_turn(self, win):
+        win.play(["UserPromptSubmit", "PostToolUseFailure"])
+        assert win.state == "running" and win.oneshot_state == "failed"
+
+
+class TestSettling:
+    @staticmethod
+    def _play_cycles(win, name, cycles):
+        for _ in range(len(config.ANIMATIONS[name]["durations"]) * cycles):
+            win._advance_frame()
+
+    def test_state_settles_after_configured_repeats(self, win):
+        win.play(["UserPromptSubmit"])
+        assert win.anim.repeats == config.STATE_REPEATS
+        self._play_cycles(win, "running", config.STATE_REPEATS)
+        assert win.anim.shown == "idle" and win.state_settled
+        assert win._active_animation() == ("running", False), "the state is kept"
+
+    def test_same_state_again_replays(self, win):
+        win.play(["UserPromptSubmit"])
+        self._play_cycles(win, "running", config.STATE_REPEATS)
+        win.play(["UserPromptSubmit"])
+        assert (win.anim.shown, win.anim.frame_index) == ("running", 0)
+        assert not win.state_settled
+
+    def test_settled_state_stays_settled_after_a_oneshot(self, win):
+        win.play(["UserPromptSubmit"])
+        self._play_cycles(win, "running", config.STATE_REPEATS)
+        win.play(["SubagentStart"])
+        assert win.anim.shown == "review"
+        self._play_cycles(win, "review", 1)
+        assert win.oneshot_state is None
+        assert (win.anim.name, win.anim.shown) == ("running", "idle")
+
+    def test_unsettled_state_resumes_its_cycles_after_a_oneshot(self, win):
+        win.play(["UserPromptSubmit", "SubagentStart"])
+        self._play_cycles(win, "review", 1)
+        assert win.anim.shown == "running"
+
+    def test_oneshots_play_once(self, win):
+        win.play(["SessionStart"])
+        assert win.anim.repeats == 1
+
+    def test_idle_never_settles(self, win):
+        win.play(["UserPromptSubmit", "Interrupt"])
+        assert win.anim.repeats is None
+
+    def test_drag_loops_while_held(self, win):
+        win.drag_state = "jumping"
+        win._sync_anim()
+        assert win.anim.repeats is None
+
+    def test_event_during_drag_keeps_drag_frames(self, win):
+        win.drag_state = "running-right"
+        win._sync_anim()
+        win.anim.advance()
+        win.play(["UserPromptSubmit"])
+        assert (win.anim.name, win.anim.frame_index) == ("running-right", 1)
+        assert win.state == "running"
 
 
 class TestAnimationPriority:
@@ -370,7 +447,7 @@ class TestAnimationPriority:
     def test_sync_anim_updates_controller(self, win):
         win.apply_event("UserPromptSubmit", "s1")
         assert win.anim.name == "running" and win.anim.is_oneshot is False
-        win.apply_event("Stop", "s1")
+        win.apply_event("SubagentStop", "s1")
         assert win.anim.name == "jumping" and win.anim.is_oneshot is True
 
 

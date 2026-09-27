@@ -58,9 +58,11 @@ def look_cell(direction_index: int) -> tuple[int, int]:
     return LOOK_FIRST_ROW + idx // ATLAS_COLS, idx % ATLAS_COLS
 
 # --- Animation table (row index, used columns, per-frame durations in ms) ---
-# Source: ~/.claude/skills/hatch-pet/references/animation-rows.md
+# Source: ~/.claude/skills/hatch-pet/references/animation-rows.md. Durations
+# match the Codex TUI's built-in pet (codex-rs/tui/src/pets/model.rs), whose
+# idle loop is deliberately slow and calm.
 ANIMATIONS: dict[str, dict] = {
-    "idle":          {"row": 0, "durations": [280, 110, 110, 140, 140, 320]},
+    "idle":          {"row": 0, "durations": [1680, 660, 660, 840, 840, 1920]},
     "running-right": {"row": 1, "durations": [120, 120, 120, 120, 120, 120, 120, 220]},
     "running-left":  {"row": 2, "durations": [120, 120, 120, 120, 120, 120, 120, 220]},
     "waving":        {"row": 3, "durations": [140, 140, 140, 280]},
@@ -71,72 +73,65 @@ ANIMATIONS: dict[str, dict] = {
     "review":        {"row": 8, "durations": [150, 150, 150, 150, 150, 280]},
 }
 
-# Which states loop forever vs play once
-LOOPING_STATES = {"idle", "running", "waiting", "running-right", "running-left"}
-ONESHOT_STATES = {"waving", "jumping", "failed", "review"}
+# How many cycles a state's animation plays before the pet settles into the
+# idle loop. The state itself is kept (it decides what RESOLVES may do next);
+# only the rendered animation settles. This is the Codex TUI's
+# `app_state_animation` shape — a state plays three times and then hands off
+# to idle — and it is what keeps the pet from animating forever when a turn
+# ends without any hook: neither agent fires `Stop` for an Esc interrupt, and
+# Claude Code fires nothing at all when the user denies a permission prompt.
+# Oneshots always play once; drag animations loop while the button is held.
+STATE_REPEATS = 3
 
 # --- Event → animation mapping ---
 #
-# Three orthogonal tables. Any event may appear in zero, one, or several:
-#   INTERVAL_OPEN  : pushes a looping animation onto the base stack
-#   INTERVAL_CLOSE : pops matching opens off the top of the stack
-#   ONESHOTS       : plays a single animation overlaid on whatever's on top
+# The pet holds one state at a time, like the Codex TUI pet, with the same
+# meaning:
+#   running — the agent is working on a turn
+#   waiting — the agent needs the user (approval, elicitation, idle prompt)
+#   review  — the turn finished and the result is ready
+#   failed  — the turn ended with an error
+#   idle    — nothing going on
+# A new state replaces the old one and replays from its first frame.
 #
-# An event is processed in order: close -> open -> oneshot. This lets a single
-# event (e.g. PreToolUse) close one interval (PermissionRequest) and open
-# another (a tool-execution interval) atomically.
-#
-# Why a stack? Tool calls nest inside the prompt turn, so PostToolUse needs to
-# fall back to the *outer* "running" loop, not all the way to idle. The stack
-# also lets terminal events like Notification / PermissionRequest loop forever
-# until the next user action implicitly closes them — instead of flashing once
-# and being missed.
+# Why not nest states? Measured hook order does not nest: `PreToolUse` fires
+# *before* `PermissionRequest` (in both agents), approving a prompt fires no
+# event until the tool's `PostToolUse`, and background subagents send their
+# tool events after the main agent's `Stop`, under the same session id.
 
-# event -> animation pushed when the event opens an interval
-INTERVAL_OPEN: dict[str, str] = {
+# event -> state it switches to
+STATES: dict[str, str] = {
     "UserPromptSubmit":  "running",
-    "PreToolUse":        "waiting",
-    "Notification":      "review",
-    "PermissionRequest": "waving",
-    # Compaction is between-turn busy work; show the same waiting loop.
-    "PreCompact":        "waiting",
-    # MCP server asking for input behaves like PermissionRequest — a terminal
-    # interactive state that loops until the user responds.
-    "Elicitation":       "waving",
+    "PermissionRequest": "waiting",
+    # MCP server asking for input behaves like PermissionRequest.
+    "Elicitation":       "waiting",
+    # Only the idle prompt reaches here; see `is_noise_event`.
+    "Notification":      "waiting",
+    # Compaction is busy work the agent does on its own.
+    "PreCompact":        "running",
+    "Stop":              "review",
+    "StopFailure":       "failed",
+    # Codex only: the user interrupted the turn.
+    "Interrupt":         "idle",
+    "SessionEnd":        "idle",
 }
 
-# event -> set of opener event names this event closes (popped from stack top
-# while the topmost entry is in the set; stops at the first non-match so
-# nested intervals stay correct)
-INTERVAL_CLOSE: dict[str, set[str]] = {
-    "PostToolUse":        {"PreToolUse"},
-    "PostToolUseFailure": {"PreToolUse"},
-    # Tool execution implies any pending permission request was resolved.
-    "PreToolUse":         {"PermissionRequest"},
-    # User responding closes any pending notification/permission alert.
-    "UserPromptSubmit":   {"Notification", "PermissionRequest"},
-    # Resolution events for the new opener pairs.
-    "PermissionDenied":   {"PermissionRequest"},
-    "PostCompact":        {"PreCompact"},
-    "ElicitationResult":  {"Elicitation"},
-    # Terminal events tear everything down to base.
-    "Stop":               {"UserPromptSubmit", "PreToolUse",
-                           "Notification", "PermissionRequest",
-                           "PreCompact", "Elicitation"},
-    "StopFailure":        {"UserPromptSubmit", "PreToolUse",
-                           "Notification", "PermissionRequest",
-                           "PreCompact", "Elicitation"},
-    "SessionEnd":         {"UserPromptSubmit", "PreToolUse",
-                           "Notification", "PermissionRequest",
-                           "PreCompact", "Elicitation"},
+# event -> (state, new state): switch only when the pet is in that state.
+# These are the signals that a needs-input state was answered and the agent
+# carries on. They fire for every tool call, so they must not touch any other
+# state (a subagent's PostToolUse arriving after the main agent's Stop must
+# leave `review` alone).
+RESOLVES: dict[str, tuple[str, str]] = {
+    "PostToolUse":        ("waiting", "running"),
+    "PostToolUseFailure": ("waiting", "running"),
+    "PermissionDenied":   ("waiting", "running"),
+    "ElicitationResult":  ("waiting", "running"),
 }
 
-# event -> animation played once as a flash overlay on the current base
+# event -> animation played once as a flash overlay on the current state
 ONESHOTS: dict[str, str] = {
     "SessionStart":       "waving",
     "SessionEnd":         "waving",
-    "Stop":               "jumping",
-    "StopFailure":        "failed",
     "SubagentStop":       "jumping",
     "SubagentStart":      "review",
     "TaskCreated":        "review",
@@ -144,6 +139,24 @@ ONESHOTS: dict[str, str] = {
     "PostToolUseFailure": "failed",
     "PermissionDenied":   "failed",
 }
+
+# Claude Code sends this Notification ~6s after the PermissionRequest it
+# duplicates; replaying `waiting` for it would only restart the animation.
+NOISE_NOTIFICATION_TYPES = {"permission_prompt"}
+
+
+def is_noise_event(event: str, hook_data: dict) -> bool:
+    """Hook firings that don't reflect anything the user asked for.
+
+    Claude Code runs internal subagents (prompt suggestions after each turn,
+    compaction) whose `SubagentStop` carries an empty `agent_type` and has no
+    matching `SubagentStart`. Real subagents always name their type, in both
+    Claude Code and Codex."""
+    if event == "SubagentStop":
+        return not hook_data.get("agent_type")
+    if event == "Notification":
+        return hook_data.get("notification_type") in NOISE_NOTIFICATION_TYPES
+    return False
 
 # --- Filesystem paths ---
 def _xdg(env: str, default: Path) -> Path:

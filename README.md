@@ -89,25 +89,26 @@ Codex hook support is narrower than Claude Code's hook support.
 
 | Agent event            | Pet animation                |
 | ---------------------- | ---------------------------- |
-| `SessionStart`         | wave once → idle             |
-| `UserPromptSubmit`     | running (loop)               |
-| `PreToolUse`           | waiting (loop)               |
-| `PostToolUse`          | closes the tool's waiting loop |
-| `PostToolUseFailure`   | failed once → back to running |
-| `Notification`         | review (loop, cleared on next user action) |
-| `PermissionRequest`    | waving (loop, cleared on resolution) |
-| `PermissionDenied`     | failed once (closes the request) |
-| `Elicitation`          | waving (loop, while MCP awaits input) |
-| `ElicitationResult`    | closes the elicitation loop  |
-| `PreCompact` / `PostCompact` | waiting (loop) during context compaction |
+| `SessionStart`         | wave once                    |
+| `UserPromptSubmit`     | running                      |
+| `PermissionRequest`    | waiting (needs your approval) |
+| `Elicitation`          | waiting (MCP server needs input) |
+| `Notification`         | waiting (Claude Code idle prompt; permission-prompt notifications are ignored) |
+| `PostToolUse` / `ElicitationResult` | back to running if the pet was waiting |
+| `PostToolUseFailure`   | failed once; back to running if the pet was waiting |
+| `PermissionDenied`     | failed once; back to running |
+| `PreCompact`           | running                      |
 | `SubagentStart`        | review once                  |
 | `TaskCreated`          | review once                  |
 | `TaskCompleted`        | jump once                    |
-| `Stop`                 | jump once → idle             |
-| `SubagentStop`         | jump once                    |
-| `StopFailure`          | failed once → idle           |
-| `SessionEnd`           | wave once → quit if no other sessions remain (override with `stay_even_no_session`) |
+| `Stop`                 | review (turn finished, result ready) |
+| `SubagentStop`         | jump once (Claude Code's internal subagents are ignored) |
+| `StopFailure`          | failed (turn ended with an error) |
+| `Interrupt` (Codex)    | idle                         |
+| `SessionEnd`           | wave once → idle; quit if no other sessions remain (override with `stay_even_no_session`) |
 | Drag                   | running-right / running-left / jumping based on motion |
+
+The pet holds one state at a time and follows the Codex TUI's built-in pet: each state (running, waiting, review, failed) plays its animation three times and then settles into the idle loop until the next state change. Some turn endings fire no hook at all (pressing Esc in Claude Code, denying a permission prompt), so the pet never depends on one to stop animating.
 
 ## Pet formats (v1 and v2)
 
@@ -118,7 +119,7 @@ Both Codex pet generations work, picked from `spriteVersionNumber` in `pet.json`
 | v1 | `1536x1872`, 8 cols × 9 rows | absent or `1` | — |
 | v2 | `1536x2288`, 8 cols × 11 rows | `2` | neutral look cell at row 0 / col 6, plus 16 clockwise look directions in rows 9–10 |
 
-The nine animation rows are identical in both, so a v2 pet animates exactly like a v1 one. On top of that, a **v2 pet turns to face your mouse pointer while it is idle**: the pointer direction is mapped to one of 16 cells (22.5° apart, index 0 = straight up, going clockwise), and the neutral cell is used when the pointer sits right on the pet. Tracking stops as soon as the pet has something to do — during a drag, a oneshot flash, or any open interval the animation wins — and beyond `look_radius` the pet goes back to its idle loop. Set `look_at_cursor: false` to turn it off.
+The nine animation rows are identical in both, so a v2 pet animates exactly like a v1 one. On top of that, a **v2 pet turns to face your mouse pointer while it is idle**: the pointer direction is mapped to one of 16 cells (22.5° apart, index 0 = straight up, going clockwise), and the neutral cell is used when the pointer sits right on the pet. Tracking stops as soon as the pet has something to do — during a drag, a oneshot flash, or while a state animation plays, the animation wins — and beyond `look_radius` the pet goes back to its idle loop. Set `look_at_cursor: false` to turn it off.
 
 If a pet's declared version disagrees with its actual atlas height, the atlas wins and the mismatch is logged to `event.log`.
 
@@ -142,7 +143,7 @@ If a pet's declared version disagrees with its actual atlas height, the atlas wi
   "look_deadzone": 48,
   "max_log_size": 5242880,
   "animation_durations": {
-    "idle":          [280, 110, 110, 140, 140, 320],
+    "idle":          [1680, 660, 660, 840, 840, 1920],
     "running-right": [120, 120, 120, 120, 120, 120, 120, 220],
     "waving":        [140, 140, 140, 280]
   }
