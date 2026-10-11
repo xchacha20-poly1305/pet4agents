@@ -6,7 +6,8 @@
           {
             "type": "command",
             "command": "PET4AGENTS_AGENT=codex \"${PLUGIN_ROOT}/scripts/pet_event.py\" SessionStart",
-            "timeout": 5
+            "timeout": 5,
+            "async": true
           }
         ]
       }
@@ -28,7 +29,8 @@
           {
             "type": "command",
             "command": "PET4AGENTS_AGENT=codex \"${PLUGIN_ROOT}/scripts/pet_event.py\" UserPromptSubmit",
-            "timeout": 5
+            "timeout": 5,
+            "async": true
           }
         ]
       }
@@ -39,7 +41,8 @@
           {
             "type": "command",
             "command": "PET4AGENTS_AGENT=codex \"${PLUGIN_ROOT}/scripts/pet_event.py\" PostToolUse",
-            "timeout": 5
+            "timeout": 5,
+            "async": true
           }
         ]
       }
@@ -50,7 +53,20 @@
           {
             "type": "command",
             "command": "PET4AGENTS_AGENT=codex \"${PLUGIN_ROOT}/scripts/pet_event.py\" PreCompact",
-            "timeout": 5
+            "timeout": 5,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "PET4AGENTS_AGENT=codex \"${PLUGIN_ROOT}/scripts/pet_event.py\" PostCompact",
+            "timeout": 5,
+            "async": true
           }
         ]
       }
@@ -61,7 +77,8 @@
           {
             "type": "command",
             "command": "PET4AGENTS_AGENT=codex \"${PLUGIN_ROOT}/scripts/pet_event.py\" SubagentStart",
-            "timeout": 5
+            "timeout": 5,
+            "async": true
           }
         ]
       }
@@ -72,7 +89,8 @@
           {
             "type": "command",
             "command": "PET4AGENTS_AGENT=codex \"${PLUGIN_ROOT}/scripts/pet_event.py\" SubagentStop",
-            "timeout": 5
+            "timeout": 5,
+            "async": true
           }
         ]
       }
@@ -83,7 +101,8 @@
           {
             "type": "command",
             "command": "PET4AGENTS_AGENT=codex \"${PLUGIN_ROOT}/scripts/pet_event.py\" Stop",
-            "timeout": 5
+            "timeout": 5,
+            "async": true
           }
         ]
       }
@@ -94,7 +113,8 @@
           {
             "type": "command",
             "command": "PET4AGENTS_AGENT=codex \"${PLUGIN_ROOT}/scripts/pet_event.py\" Interrupt",
-            "timeout": 5
+            "timeout": 5,
+            "async": true
           }
         ]
       }
@@ -105,7 +125,8 @@
           {
             "type": "command",
             "command": "PET4AGENTS_AGENT=codex \"${PLUGIN_ROOT}/scripts/pet_event.py\" PermissionRequest",
-            "timeout": 5
+            "timeout": 5,
+            "async": true
           }
         ]
       }

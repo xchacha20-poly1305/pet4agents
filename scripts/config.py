@@ -107,8 +107,10 @@ STATES: dict[str, str] = {
     "Elicitation":       "waiting",
     # Only the idle prompt reaches here; see `is_noise_event`.
     "Notification":      "waiting",
-    # Compaction is busy work the agent does on its own.
+    # Compaction is busy work the agent does on its own. PostCompact is the
+    # same state, so finishing compaction replays running.
     "PreCompact":        "running",
+    "PostCompact":       "running",
     "Stop":              "review",
     "StopFailure":       "failed",
     # Codex only: the user interrupted the turn.
@@ -139,6 +141,19 @@ ONESHOTS: dict[str, str] = {
     "PostToolUseFailure": "failed",
     "PermissionDenied":   "failed",
 }
+
+# SessionStart sources that must not flash the greeting wave. Compaction
+# already played running via PreCompact/PostCompact, then both agents fire
+# SessionStart with this source on the same turn.
+SESSION_START_SOURCES_WITHOUT_WAVE = frozenset({"compact"})
+
+
+def oneshot_for(event: str, source: str = "") -> str | None:
+    """Oneshot animation for `event`, or None when it should not flash."""
+    if event == "SessionStart" and source in SESSION_START_SOURCES_WITHOUT_WAVE:
+        return None
+    return ONESHOTS.get(event)
+
 
 # Claude Code sends this Notification ~6s after the PermissionRequest it
 # duplicates; replaying `waiting` for it would only restart the animation.

@@ -519,9 +519,9 @@ def spawn_daemon() -> None:
 def spawn_daemon_event_worker(payload: dict) -> None:
     """Start a detached worker that can take its time installing deps.
 
-    Codex currently runs command hooks synchronously and skips `async: true`
-    handlers, so the foreground hook must not spend minutes creating the venv
-    or downloading PySide6. The worker re-enters this script, performs the
+    Codex still kills a SessionStart hook, async or not, when its timeout
+    fires. The foreground hook must not spend minutes creating the venv or
+    downloading PySide6. The worker re-enters this script, performs the
     heavy setup, starts the daemon, then delivers the original SessionStart.
     """
     try:
@@ -600,6 +600,11 @@ def cmd_event(event_name: str) -> None:
         # Which tool fired this event — used for per-tool pet selection.
         "agent_type": agent_type,
     }
+    # SessionStart.source decides whether the greeting wave plays. Other
+    # events ignore it.
+    source = hook_data.get("source")
+    if isinstance(source, str) and source:
+        payload["source"] = source
 
     ok = send_to_daemon(payload)
     if not ok:

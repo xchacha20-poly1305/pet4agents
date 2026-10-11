@@ -89,7 +89,7 @@ Codex hook support is narrower than Claude Code's hook support.
 
 | Agent event            | Pet animation                |
 | ---------------------- | ---------------------------- |
-| `SessionStart`         | wave once                    |
+| `SessionStart`         | wave once, except after compaction (`source` is `compact`) |
 | `UserPromptSubmit`     | running                      |
 | `PermissionRequest`    | waiting (needs your approval) |
 | `Elicitation`          | waiting (MCP server needs input) |
@@ -98,6 +98,7 @@ Codex hook support is narrower than Claude Code's hook support.
 | `PostToolUseFailure`   | failed once; back to running if the pet was waiting |
 | `PermissionDenied`     | failed once; back to running |
 | `PreCompact`           | running                      |
+| `PostCompact`          | running                      |
 | `SubagentStart`        | review once                  |
 | `TaskCreated`          | review once                  |
 | `TaskCompleted`        | jump once                    |

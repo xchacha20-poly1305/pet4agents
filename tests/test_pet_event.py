@@ -519,6 +519,20 @@ class TestCmdEvent:
         msg = fake_daemon.wait_for(1)[0]
         assert msg["session_id"] == "abc"
         assert msg["cwd"] == "/somewhere"
+        assert "source" not in msg
+
+    def test_forwards_session_start_source(self, fake_daemon, tmp_path, monkeypatch, request):
+        payload = json.dumps({"session_id": "abc", "source": "compact"})
+        stdin = tmp_path / "stdin.json"
+        stdin.write_text(payload)
+        fh = stdin.open()
+        monkeypatch.setattr(sys, "stdin", fh)
+        request.addfinalizer(fh.close)
+        monkeypatch.setattr(pet_event, "find_agent_info", lambda: (0, "codex"))
+        pet_event.cmd_event("SessionStart")
+        msg = fake_daemon.wait_for(1)[0]
+        assert msg["source"] == "compact"
+        assert msg["session_id"] == "abc"
 
     def test_malformed_stdin_does_not_crash(self, fake_daemon, tmp_path, monkeypatch, request):
         stdin = tmp_path / "stdin.txt"

@@ -152,6 +152,12 @@ class TestEventTables:
         for event, anim in config.ONESHOTS.items():
             assert anim in config.ANIMATIONS, event
 
+    def test_compact_session_start_does_not_wave(self):
+        assert config.oneshot_for("SessionStart", "compact") is None
+        assert config.oneshot_for("SessionStart", "startup") == "waving"
+        assert config.oneshot_for("SessionStart") == "waving"
+        assert config.oneshot_for("SessionEnd", "compact") == "waving"
+
     @pytest.mark.parametrize("name", ["hooks.json", "codex-hooks.json"])
     def test_every_registered_hook_is_mapped(self, name):
         """A hook no table uses only costs a process spawn per event."""
@@ -193,6 +199,19 @@ class TestNoiseEvents:
         """Codex's schema is stricter than Claude's — no top-level extras."""
         codex = json.loads((config.PLUGIN_ROOT / "hooks/codex-hooks.json").read_text("utf-8"))
         assert list(codex) == ["hooks"]
+
+    def test_codex_hooks_are_async_except_session_end(self):
+        """Codex runs async command hooks off the turn, but forces SessionEnd
+        synchronous and clamps its timeout to 3s."""
+        codex = json.loads((config.PLUGIN_ROOT / "hooks/codex-hooks.json").read_text("utf-8"))
+        for event, groups in codex["hooks"].items():
+            for group in groups:
+                for hook in group["hooks"]:
+                    if event == "SessionEnd":
+                        assert hook.get("async") is not True
+                        assert hook["timeout"] <= 3
+                    else:
+                        assert hook["async"] is True
 
 
 # ── user config ───────────────────────────────────────────────────────────

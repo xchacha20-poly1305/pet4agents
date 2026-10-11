@@ -509,7 +509,7 @@ class PetWindow(QWidget):
             self.anim.set(name, oneshot, repeats, restart=restart,
                           settled=self.state_settled)
 
-    def apply_event(self, event_name: str, session_id: str = "", parent_pid: int = 0, agent_type: str = "") -> None:
+    def apply_event(self, event_name: str, session_id: str = "", parent_pid: int = 0, agent_type: str = "", source: str = "") -> None:
         # Session lifecycle bookkeeping runs first so the
         # `stay_even_no_session` check can see an up-to-date set even for
         # events that don't change the animation.
@@ -519,7 +519,7 @@ class PetWindow(QWidget):
         resolve = config.RESOLVES.get(event_name)
         if resolve and self.state == resolve[0]:
             new_state = resolve[1]
-        oneshot = config.ONESHOTS.get(event_name)
+        oneshot = config.oneshot_for(event_name, source)
         if new_state is None and oneshot is None:
             return
 
@@ -1039,11 +1039,15 @@ class IpcServer:
                 parent_pid = int(msg.get("parent_pid") or 0)
             except (TypeError, ValueError):
                 parent_pid = 0
+            source = msg.get("source") or ""
+            if not isinstance(source, str):
+                source = ""
             self.win.apply_event(
                 msg.get("event", ""),
                 msg.get("session_id", ""),
                 parent_pid,
                 msg.get("agent_type", ""),
+                source,
             )
         elif kind == "quit":
             self.win.quit_requested.emit()

@@ -346,6 +346,13 @@ class TestStates:
         win.play(["PreCompact"])
         assert win.state == "running"
 
+    def test_post_compact_replays_running(self, win):
+        win.play(["PreCompact"])
+        win.anim.advance()
+        win.play(["PostCompact"])
+        assert win.state == "running"
+        assert win.anim.frame_index == 0
+
     def test_idle_notification_needs_input(self, win):
         win.play(["UserPromptSubmit", "Stop", "Notification"])
         assert win.state == "waiting"
@@ -409,6 +416,19 @@ class TestSettling:
     def test_oneshots_play_once(self, win):
         win.play(["SessionStart"])
         assert win.anim.repeats == 1
+
+    def test_compact_session_start_keeps_the_current_animation(self, win):
+        win.play(["UserPromptSubmit"])
+        win.anim.advance()
+        win.apply_event("SessionStart", "s1", 1, "codex", "compact")
+        assert win.state == "running"
+        assert win.oneshot_state == ""
+        assert win.anim.frame_index == 1
+        assert "s1" in win.active_sessions
+
+    def test_startup_session_start_still_waves(self, win):
+        win.apply_event("SessionStart", "s1", 1, "codex", "startup")
+        assert win.oneshot_state == "waving"
 
     def test_idle_never_settles(self, win):
         win.play(["UserPromptSubmit", "Interrupt"])
