@@ -126,7 +126,11 @@ If a pet's declared version disagrees with its actual atlas height, the atlas wi
 ## Slash commands
 
 - `/pet-stop` — quit the pet daemon
+- `/pet-hide [seconds]` — hide the pet temporarily, e.g. for screenshots (no argument: until `/pet-show`)
+- `/pet-show` — show a hidden pet again
 - `/pet-set <pet-id>` — switch to a different pet from `~/.codex/pets/`
+
+Right-clicking the pet also offers "Hide for 10 seconds / 1 minute / 5 minutes"; the pet keeps following agent events while hidden and comes back in its current state.
 
 ## Config
 

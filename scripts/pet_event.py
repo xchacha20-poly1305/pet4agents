@@ -6,6 +6,8 @@ Usage:
     pet_event.py <EventName>          # called by Claude Code / Codex hooks
     pet_event.py daemon-stop          # quit the daemon
     pet_event.py set-pet <pet-id>     # switch the active pet
+    pet_event.py hide [seconds]       # hide the pet (for N seconds, or until show)
+    pet_event.py show                 # show a hidden pet again
     pet_event.py daemon-spawn         # internal: start daemon (called via fork)
     pet_event.py daemon-spawn-event   # internal: background startup + event
 
@@ -633,6 +635,44 @@ def cmd_set_pet(pet_id: str) -> None:
     print(f"pet set to {pet_id}" + ("" if sent else " (daemon not running)"))
 
 
+def parse_hide_seconds(arg: str | None) -> float | None:
+    """`hide` argument -> seconds (0 = until `show`), or None if invalid."""
+    if arg is None or arg == "":
+        return 0.0
+    try:
+        seconds = float(arg)
+    except ValueError:
+        return None
+    if seconds != seconds or seconds < 0 or seconds == float("inf"):
+        return None
+    return seconds
+
+
+def cmd_hide(arg: str | None) -> int:
+    seconds = parse_hide_seconds(arg)
+    if seconds is None:
+        print(f"invalid seconds: {arg!r}")
+        return 1
+    payload: dict = {"kind": "hide"}
+    if seconds:
+        payload["seconds"] = seconds
+    if not send_to_daemon(payload):
+        print("pet daemon is not running")
+        return 0
+    if seconds:
+        print(f"pet hidden for {seconds:g}s")
+    else:
+        print("pet hidden (run `pet_event.py show` to bring it back)")
+    return 0
+
+
+def cmd_show() -> None:
+    if not send_to_daemon({"kind": "show"}):
+        print("pet daemon is not running")
+        return
+    print("pet shown")
+
+
 def main() -> int:
     args = sys.argv[1:]
     if not args:
@@ -650,6 +690,11 @@ def main() -> int:
             print("usage: pet_event.py set-pet <pet-id>")
             return 1
         cmd_set_pet(args[1])
+        return 0
+    if sub == "hide":
+        return cmd_hide(args[1] if len(args) > 1 else None)
+    if sub == "show":
+        cmd_show()
         return 0
     if sub == "daemon-spawn-event":
         if len(args) < 2:

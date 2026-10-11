@@ -1,6 +1,6 @@
 ---
 name: codex-pet
-description: Control the pet4agents desktop pet from Codex. Use when the user asks to stop the pet daemon, switch the active pet, or inspect pet configuration/logs.
+description: Control the pet4agents desktop pet from Codex. Use when the user asks to stop, hide or show the pet, switch the active pet, or inspect pet configuration/logs.
 ---
 
 # Codex Pet
@@ -14,6 +14,23 @@ When the user asks to stop or quit the desktop pet, run:
 
 ```bash
 ./scripts/pet_event.py daemon-stop
+```
+
+Report the command output.
+
+## Hide / Show the Pet
+
+When the user asks to hide the pet temporarily (for example to take a
+screenshot), run, with an optional number of seconds:
+
+```bash
+./scripts/pet_event.py hide [seconds]
+```
+
+Without seconds the pet stays hidden until:
+
+```bash
+./scripts/pet_event.py show
 ```
 
 Report the command output.

@@ -90,6 +90,8 @@ Per-tool overrides (`claude_pet_id` / `codex_pet_id` in config) are handled sepa
   echo '{}' | scripts/pet_event.py Stop
   ```
 - **Stop the daemon**: `/pet-stop` (or `scripts/pet_event.py daemon-stop`).
+- **Hide temporarily** (screenshots): right-click → "Hide for ...", `/pet-hide [seconds]`, or `scripts/pet_event.py hide [seconds]`; `/pet-show` / `scripts/pet_event.py show` brings it back. Hiding only unmaps the window; the state machine and session tracking keep running.
+- **Hide temporarily** (screenshots): right-click → "Hide for ...", `/pet-hide [seconds]`, or `scripts/pet_event.py hide [seconds]`; `/pet-show` / `scripts/pet_event.py show` brings it back. Hiding only unmaps the window; the state machine and session tracking keep running.
 - **Switch pets**: `/pet-set <pet-id>`, ask Codex to switch the pet, or edit `~/.config/pet4agents/config.json`.
 - **Run tests**: `uv run --with-requirements requirements-test.txt pytest tests/` (or `pip install -r requirements-test.txt && python -m pytest tests/`).
 - **Force a clean reinstall**: see the Uninstall block in `README.md`.
