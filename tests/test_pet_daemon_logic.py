@@ -597,3 +597,65 @@ class TestPluginManifests:
     def test_plugin_version_matches_manifest(self):
         data = json.loads((config.PLUGIN_ROOT / ".codex-plugin/plugin.json").read_text("utf-8"))
         assert config.PLUGIN_VERSION == data["version"]
+
+
+# ── temporary hide ────────────────────────────────────────────────────────
+
+
+class _FakeTimer:
+    def __init__(self):
+        self.interval = None
+
+    def start(self, ms):
+        self.interval = ms
+
+    def stop(self):
+        self.interval = None
+
+
+class FakeHideWindow:
+    hide_for = pet_daemon.PetWindow.hide_for
+    unhide = pet_daemon.PetWindow.unhide
+
+    def __init__(self):
+        self.visible = True
+        self._unhide_timer = _FakeTimer()
+
+    def hide(self):
+        self.visible = False
+
+    def show(self):
+        self.visible = True
+
+    def isVisible(self):
+        return self.visible
+
+
+class TestHide:
+    def test_timed_hide_arms_the_unhide_timer(self, paths):
+        w = FakeHideWindow()
+        w.hide_for(10)
+        assert not w.visible
+        assert w._unhide_timer.interval == 10_000
+
+    def test_untimed_hide_has_no_timer(self, paths):
+        w = FakeHideWindow()
+        w.hide_for(10)
+        w.hide_for(0)
+        assert not w.visible
+        assert w._unhide_timer.interval is None
+
+    def test_huge_duration_is_clamped_to_qtimer_range(self, paths):
+        w = FakeHideWindow()
+        w.hide_for(1e12)
+        assert w._unhide_timer.interval == 2**31 - 1
+
+    def test_unhide_shows_and_cancels_timer(self, paths):
+        w = FakeHideWindow()
+        w.hide_for(60)
+        w.unhide()
+        assert w.visible
+        assert w._unhide_timer.interval is None
+
+    def test_menu_choices_are_positive(self):
+        assert all(s > 0 for s, _ in pet_daemon.HIDE_MENU_SECONDS)

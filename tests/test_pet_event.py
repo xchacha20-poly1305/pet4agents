@@ -543,3 +543,36 @@ class TestCmdEvent:
         monkeypatch.setattr(pet_event, "find_agent_info", lambda: (0, ""))
         pet_event.cmd_event("SessionStart")
         assert len(spawned) == 1 and spawned[0]["event"] == "SessionStart"
+
+
+class TestHideShow:
+    @pytest.mark.parametrize("arg,expected", [
+        (None, 0.0), ("", 0.0), ("0", 0.0), ("30", 30.0), ("1.5", 1.5),
+    ])
+    def test_parse_valid(self, arg, expected):
+        assert pet_event.parse_hide_seconds(arg) == expected
+
+    @pytest.mark.parametrize("arg", ["-1", "abc", "nan", "inf"])
+    def test_parse_invalid(self, arg):
+        assert pet_event.parse_hide_seconds(arg) is None
+
+    def test_hide_sends_seconds(self, fake_daemon, capsys):
+        assert pet_event.cmd_hide("30") == 0
+        assert fake_daemon.wait_for(1)[0] == {"kind": "hide", "seconds": 30.0}
+        assert "30s" in capsys.readouterr().out
+
+    def test_hide_without_seconds(self, fake_daemon):
+        pet_event.cmd_hide(None)
+        assert fake_daemon.wait_for(1)[0] == {"kind": "hide"}
+
+    def test_invalid_seconds_sends_nothing(self, paths, capsys):
+        assert pet_event.cmd_hide("abc") == 1
+        assert "invalid" in capsys.readouterr().out
+
+    def test_show(self, fake_daemon):
+        pet_event.cmd_show()
+        assert fake_daemon.wait_for(1)[0] == {"kind": "show"}
+
+    def test_not_running(self, paths, capsys):
+        pet_event.cmd_show()
+        assert "not running" in capsys.readouterr().out

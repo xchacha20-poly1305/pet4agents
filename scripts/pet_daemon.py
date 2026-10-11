@@ -292,6 +292,10 @@ LONG_PRESS_MS = 220
 # How often the pointer is sampled for v2 look tracking. 100ms reads as
 # instant while costing one cursor query per tick.
 LOOK_POLL_MS = 100
+# Right-click "Hide for ..." choices, in seconds. A hidden pet cannot be
+# right-clicked, so the menu only offers timed hides; `pet_event.py show`
+# brings it back early.
+HIDE_MENU_SECONDS = ((10, "10 seconds"), (60, "1 minute"), (300, "5 minutes"))
 
 
 class PetWindow(QWidget):
@@ -391,6 +395,13 @@ class PetWindow(QWidget):
         self._look_timer.setInterval(LOOK_POLL_MS)
         self._look_timer.timeout.connect(self._update_look)
         self._look_timer.start()
+
+        # Brings the pet back after a timed hide. Animation and session
+        # tracking keep running while hidden, so it reappears in the
+        # current state.
+        self._unhide_timer = QTimer(self)
+        self._unhide_timer.setSingleShot(True)
+        self._unhide_timer.timeout.connect(self.unhide)
 
     def _init_window(self) -> None:
         self.setWindowFlags(
@@ -925,11 +936,36 @@ class PetWindow(QWidget):
         # rather than an accidental side-effect of clicking the pet.
         menu = QMenu(self)
         self._make_non_activating(menu)
+        hide_actions = {
+            menu.addAction(f"Hide for {label}"): seconds
+            for seconds, label in HIDE_MENU_SECONDS
+        }
+        menu.addSeparator()
         quit_action = menu.addAction("Exit")
         chosen = menu.exec(ev.globalPos())
         if chosen is quit_action:
             self.quit_requested.emit()
+        elif chosen in hide_actions:
+            self.hide_for(hide_actions[chosen])
         ev.accept()
+
+    # ----- temporary hide -----
+
+    def hide_for(self, seconds: float = 0) -> None:
+        """Hide the pet, then show it again after `seconds` (0 = until
+        `unhide`). A new hide replaces any pending timer."""
+        self._unhide_timer.stop()
+        self.hide()
+        if seconds > 0:
+            # QTimer takes a signed 32-bit ms interval (~24 days).
+            self._unhide_timer.start(int(min(seconds * 1000, 2**31 - 1)))
+        _log(f"pet hidden for {seconds:g}s" if seconds > 0 else "pet hidden")
+
+    def unhide(self) -> None:
+        self._unhide_timer.stop()
+        if not self.isVisible():
+            self.show()
+            _log("pet shown")
 
     # ----- position persistence -----
 
@@ -1013,6 +1049,10 @@ class IpcServer:
             self.win.quit_requested.emit()
         elif kind == "reload":
             self.win.reload_pet()
+        elif kind == "hide":
+            self.win.hide_for(_positive_number(msg.get("seconds"), 0.0))
+        elif kind == "show":
+            self.win.unhide()
         else:
             _log(f"unknown kind: {kind}")
 
