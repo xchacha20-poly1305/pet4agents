@@ -28,6 +28,7 @@ import sys
 import time
 import traceback
 from pathlib import Path
+from typing import NamedTuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import config  # noqa: E402
@@ -42,9 +43,11 @@ from PySide6.QtCore import (  # noqa: E402
     Signal,
 )
 from PySide6.QtGui import (  # noqa: E402
+    QColor,
     QCursor,
     QGuiApplication,
     QPainter,
+    QPen,
     QPixmap,
 )
 from PySide6.QtNetwork import QLocalServer, QLocalSocket  # noqa: E402
@@ -232,6 +235,9 @@ class AnimationController:
         self.frame_index: int = 0
         self.cycles: int = 0
         self.settled: bool = False
+        # Per-animation durations of the active profile; layered over
+        # `config.ANIMATIONS` (already validated, so frame counts match).
+        self.duration_overrides: dict[str, list[int]] = {}
 
     def set(self, name: str, oneshot: bool, repeats: int | None = None,
             restart: bool = False, settled: bool = False) -> None:
@@ -254,18 +260,21 @@ class AnimationController:
     def _spec(self) -> dict:
         return config.ANIMATIONS.get(self.shown, config.ANIMATIONS["idle"])
 
+    def _durations(self) -> list[int]:
+        return self.duration_overrides.get(self.shown) or self._spec()["durations"]
+
     def current_row(self) -> int:
         return self._spec()["row"]
 
     def current_duration_ms(self) -> int:
-        durs = self._spec()["durations"]
+        durs = self._durations()
         idx = min(self.frame_index, len(durs) - 1)
         return int(durs[idx])
 
     def advance(self) -> bool:
         """Advance to the next frame. Returns True when a oneshot has played
         its last cycle (caller should fall back to the base state)."""
-        durs = self._spec()["durations"]
+        durs = self._durations()
         self.frame_index += 1
         if self.frame_index < len(durs):
             return False
@@ -283,6 +292,23 @@ class AnimationController:
 
 # ----------------------- Window -----------------------
 
+class Session(NamedTuple):
+    """A live agent session. `parent_pid` <= 0 means unknown: exempt from the
+    liveness check. `agent_type` ("claude"|"codex"|"") and `rule` (the
+    `process` regex of the custom `process_rules` entry that matched, or "")
+    say which profile the session uses; see `profile`."""
+
+    parent_pid: int
+    agent_type: str = ""
+    rule: str = ""
+
+    @property
+    def profile(self) -> tuple[str, str]:
+        """Key of the pet/timing profile the session selects. A custom rule
+        replaces built-in detection, so `agent_type` only counts without one."""
+        return ("", self.rule) if self.rule else (self.agent_type, "")
+
+
 DRAG_VEL_THRESHOLD = 4   # px per moveEvent to count as "running"
 DRAG_IDLE_TIMEOUT_MS = 220  # fallback drag: no moveEvent for this long -> check button state
 # A press is treated as a click (→ jumping oneshot on release) until either
@@ -296,6 +322,38 @@ LOOK_POLL_MS = 100
 # right-clicked, so the menu only offers timed hides; `pet_event.py show`
 # brings it back early.
 HIDE_MENU_SECONDS = ((10, "10 seconds"), (60, "1 minute"), (300, "5 minutes"))
+# How long a warning bubble stays up unless clicked away.
+NOTICE_TIMEOUT_MS = 15000
+
+
+class _Notice(QLabel):
+    """Warning bubble shown next to the pet. Callers make it non-activating
+    (`PetWindow._make_non_activating`) so it never steals the terminal's
+    focus; a click dismisses it."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.setWindowFlags(
+            Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
+        )
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setWordWrap(True)
+        self.setMaximumWidth(360)
+        self.setStyleSheet("color: #f5f5f5; padding: 8px 10px;")
+
+    def paintEvent(self, ev) -> None:
+        # The background is drawn by hand: a stylesheet background is not
+        # painted on a translucent top-level window.
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(QPen(QColor("#e0a030"), 1))
+        painter.setBrush(QColor(40, 40, 40, 235))
+        painter.drawRoundedRect(self.rect().adjusted(0, 0, -1, -1), 8, 8)
+        painter.end()
+        super().paintEvent(ev)
+
+    def mousePressEvent(self, ev) -> None:
+        self.close()
 
 
 class PetWindow(QWidget):
@@ -324,14 +382,16 @@ class PetWindow(QWidget):
         self._x11_pointer = _X11PointerProbe()
         self._reload_look_settings()
 
-        # Tracks live sessions: session_id -> (parent_pid, agent_type).
-        # parent_pid: 0 means unknown — session is exempt from liveness check.
-        # agent_type: "claude"|"codex"|"" — used for per-tool pet switching.
+        # Tracks live sessions: session_id -> Session. The session's profile
+        # drives pet switching and animation timing.
         # Populated on event arrival, drained on SessionEnd or when the parent
         # PID is observed dead (`_reap_dead_sessions`). When this dict drains
         # and `stay_even_no_session` is False (the default), the daemon
         # schedules its own quit.
-        self.active_sessions: dict[str, tuple[int, str]] = {}
+        self.active_sessions: dict[str, Session] = {}
+        # Deprecated config keys already warned about (once per daemon).
+        self._warned_legacy_keys: set[str] = set()
+        self._notice: _Notice | None = None
 
         self.anim = AnimationController()
 
@@ -509,11 +569,11 @@ class PetWindow(QWidget):
             self.anim.set(name, oneshot, repeats, restart=restart,
                           settled=self.state_settled)
 
-    def apply_event(self, event_name: str, session_id: str = "", parent_pid: int = 0, agent_type: str = "", source: str = "") -> None:
+    def apply_event(self, event_name: str, session_id: str = "", parent_pid: int = 0, agent_type: str = "", source: str = "", rule: str = "") -> None:
         # Session lifecycle bookkeeping runs first so the
         # `stay_even_no_session` check can see an up-to-date set even for
         # events that don't change the animation.
-        self._track_session(event_name, session_id, parent_pid, agent_type)
+        self._track_session(event_name, session_id, Session(parent_pid, agent_type, rule))
 
         new_state = config.STATES.get(event_name)
         resolve = config.RESOLVES.get(event_name)
@@ -551,39 +611,70 @@ class PetWindow(QWidget):
     # signal-zero syscall per session) so we keep it fairly snappy.
     _SESSION_LIVENESS_INTERVAL_MS = 5000
 
-    def _switch_pet_for_agent(self, agent_type: str) -> None:
-        """Load the per-tool pet from config if one is configured for agent_type."""
-        if not agent_type:
-            return
+    def _switch_profile(self, agent_type: str, rule: str) -> None:
+        """Apply the profile of a session: switch to its pet and animation
+        timing. A profile without a pet keeps the current one."""
         cfg = config.load_user_config()
-        pet_id = cfg.get(f"{agent_type}_pet_id", "").strip()
-        if not pet_id:
+        self._warn_legacy_keys(config.legacy_pet_id_keys_in_use(cfg))
+        profile = config.resolve_profile(agent_type, rule, cfg)
+        self.anim.duration_overrides = profile.animation_durations
+        label = f"rule {rule!r}" if rule else f"agent {agent_type!r}"
+        if not profile.pet_id:
             return
         for root in (config.CODEX_PETS_DIR, config.PLUGIN_PETS_DIR):
-            candidate = root / pet_id
+            candidate = root / profile.pet_id
             if _is_valid_pet_dir(candidate):
                 try:
                     meta = json.loads((candidate / "pet.json").read_text("utf-8"))
                     self._load_pet(candidate, meta)
                     self._render_current_frame()
-                    _log(f"switched to {agent_type} pet: {pet_id}")
+                    _log(f"switched to pet {profile.pet_id} for {label}")
                 except Exception as e:
-                    _log(f"_switch_pet_for_agent({agent_type!r}): load failed: {e}")
+                    _log(f"_switch_profile({label}): load failed: {e}")
                 return
-        _log(f"_switch_pet_for_agent({agent_type!r}): pet {pet_id!r} not found")
+        _log(f"_switch_profile({label}): pet {profile.pet_id!r} not found")
+
+    def _warn_legacy_keys(self, keys: list[str]) -> None:
+        """Tell the user, once per key, that the per-tool pet keys are
+        deprecated in favour of `process_rules`."""
+        new = [k for k in keys if k not in self._warned_legacy_keys]
+        if not new:
+            return
+        self._warned_legacy_keys.update(new)
+        names = " / ".join(f'"{k}"' for k in new)
+        message = (
+            f"{names} in config.json {'is' if len(new) == 1 else 'are'} "
+            'deprecated. Use "process_rules" instead, e.g. '
+            '{"process": "^claude$", "id": "<pet id>"}.'
+        )
+        _log(f"warning: {message}")
+        self._show_notice(message)
+
+    def _show_notice(self, message: str, timeout_ms: int = NOTICE_TIMEOUT_MS) -> None:
+        """Pop a short-lived warning bubble above the pet. Like the pet it
+        never takes focus; clicking it dismisses it."""
+        if self._notice is not None:
+            self._notice.close()
+        notice = _Notice(message)
+        self._make_non_activating(notice)
+        notice.adjustSize()
+        screen = QGuiApplication.primaryScreen()
+        sr = screen.availableGeometry() if screen else QRect(0, 0, 1920, 1080)
+        x = max(sr.left(), min(self.x(), sr.right() - notice.width()))
+        y = max(sr.top(), min(self.y() - notice.height() - 8, sr.bottom() - notice.height()))
+        notice.move(x, y)
+        notice.show()
+        QTimer.singleShot(timeout_ms, notice.close)
+        self._notice = notice
 
     def _maybe_revert_pet(self) -> None:
-        """After a session ends, switch to the pet for the remaining agent type
-        if all remaining sessions belong to a single known tool."""
-        if not self.active_sessions:
-            return
-        remaining = {atype for _pid, atype in self.active_sessions.values() if atype}
+        """After a session ends, switch to the profile of the remaining
+        sessions if they all share a single one."""
+        remaining = {s.profile for s in self.active_sessions.values() if any(s.profile)}
         if len(remaining) == 1:
-            self._switch_pet_for_agent(next(iter(remaining)))
+            self._switch_profile(*next(iter(remaining)))
 
-    def _track_session(
-        self, event_name: str, session_id: str, parent_pid: int, agent_type: str = ""
-    ) -> None:
+    def _track_session(self, event_name: str, session_id: str, new: Session) -> None:
         """Maintain `self.active_sessions` from incoming events.
 
         - SessionEnd drains the entry (and triggers the no-session quit check).
@@ -610,20 +701,23 @@ class PetWindow(QWidget):
             return
         prev = self.active_sessions.get(session_id)
         if prev is None:
-            self.active_sessions[session_id] = (parent_pid, agent_type)
+            self.active_sessions[session_id] = new
             label = "registered" if event_name == "SessionStart" else "learned mid-stream"
             _log(
-                f"session {label}: {session_id} pid={parent_pid or '?'} "
-                f"agent={agent_type or '?'} (active={len(self.active_sessions)})"
+                f"session {label}: {session_id} pid={new.parent_pid or '?'} "
+                f"agent={new.rule or new.agent_type or '?'} "
+                f"(active={len(self.active_sessions)})"
             )
             if event_name == "SessionStart":
-                self._switch_pet_for_agent(agent_type)
-        else:
-            prev_pid, prev_type = prev
-            if parent_pid > 0 and prev_pid <= 0:
-                # Late binding: we knew the session but not its PID; learn now.
-                self.active_sessions[session_id] = (parent_pid, agent_type or prev_type)
-                _log(f"session {session_id} pid learned: {parent_pid}")
+                self._switch_profile(*new.profile)
+        elif new.parent_pid > 0 and prev.parent_pid <= 0:
+            # Late binding: we knew the session but not its PID; learn now.
+            self.active_sessions[session_id] = Session(
+                new.parent_pid,
+                new.agent_type or prev.agent_type,
+                new.rule or prev.rule,
+            )
+            _log(f"session {session_id} pid learned: {new.parent_pid}")
 
     def _should_quit_now(self) -> bool:
         """Common predicate for both the deferred-quit scheduler and the
@@ -666,7 +760,7 @@ class PetWindow(QWidget):
         if not self.active_sessions:
             return
         dead: list[tuple[str, int]] = []
-        for sid, (pid, _atype) in self.active_sessions.items():
+        for sid, (pid, *_) in self.active_sessions.items():
             if pid <= 0:
                 continue
             try:
@@ -1042,12 +1136,16 @@ class IpcServer:
             source = msg.get("source") or ""
             if not isinstance(source, str):
                 source = ""
+            rule = msg.get("process_rule") or ""
+            if not isinstance(rule, str):
+                rule = ""
             self.win.apply_event(
                 msg.get("event", ""),
                 msg.get("session_id", ""),
                 parent_pid,
                 msg.get("agent_type", ""),
                 source,
+                rule,
             )
         elif kind == "quit":
             self.win.quit_requested.emit()

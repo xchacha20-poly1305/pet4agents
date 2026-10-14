@@ -140,8 +140,12 @@ Right-clicking the pet also offers "Hide for 10 seconds / 1 minute / 5 minutes";
 ```json
 {
   "pet_id": "claude-muse",
-  "claude_pet_id": "claude-muse",
-  "codex_pet_id": "codex-buddy",
+  "process_rules": [
+    { "process": "^claude$", "id": "claude-muse" },
+    { "process": "^codex$", "id": "codex-buddy",
+      "animation_durations": { "idle": [2000, 800, 800, 1000, 1000, 2200] } },
+    { "process": "^aider$", "id": "aider-pup" }
+  ],
   "stay_even_no_session": false,
   "look_at_cursor": true,
   "look_radius": 600,
@@ -158,14 +162,29 @@ Right-clicking the pet also offers "Hide for 10 seconds / 1 minute / 5 minutes";
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `pet_id` | (auto-discover) | Fallback pet folder under `~/.codex/pets/` (or this plugin's `pets/`) when no per-tool ID is set. |
-| `claude_pet_id` | `""` | Pet to show when a Claude Code session starts. Reverts to the Codex pet when only Codex sessions remain. Empty = use `pet_id` discovery. |
-| `codex_pet_id` | `""` | Pet to show when a Codex session starts. Reverts to the Claude pet when only Claude sessions remain. Empty = use `pet_id` discovery. |
+| `process_rules` | `[]` | Custom agent-process rules; see [Process rules](#process-rules). |
+| `claude_pet_id` | `""` | **Deprecated, use `process_rules`.** Pet to show when a Claude Code session starts. Reverts to the Codex pet when only Codex sessions remain. Empty = use `pet_id` discovery. The daemon shows a warning when this is set. |
+| `codex_pet_id` | `""` | **Deprecated, use `process_rules`.** Pet to show when a Codex session starts. Reverts to the Claude pet when only Claude sessions remain. Empty = use `pet_id` discovery. The daemon shows a warning when this is set. |
 | `stay_even_no_session` | `false` | When `false`, the daemon exits shortly after the last agent session ends. Set to `true` to keep the daemon running until you call `/pet-stop` or ask Codex to stop the pet. The "session ends" check covers the clean `SessionEnd` hook and, when the hook relay found a reliable Claude Code / Codex PID, crashes / `SIGKILL` / terminal close via a 5s liveness poll. If no reliable agent PID is found, the daemon skips PID reaping for that session rather than tracking a short-lived shell wrapper. Sessions hosted by the Codex app-server daemon are also not PID-reaped (see [Behavior difference](#behavior-difference)). |
 | `look_at_cursor` | `true` | v2 pets only: turn the pet toward the mouse pointer while it is idle. v1 pets have no look rows and ignore this. |
 | `look_radius` | `600` | Pointer distance in pixels (from the pet's center) beyond which the pet stops tracking and plays its normal idle loop. |
 | `look_deadzone` | `48` | Pointer distance in pixels below which the pet shows the neutral look cell instead of a direction, so it doesn't spin when the pointer rests on it. |
 | `max_log_size` | `5242880` | Maximum size in bytes each log file (`event.log`, `install.log`) may reach before automatic truncation. When exceeded, roughly the newest half is kept. Set to `0` to disable truncation (unbounded growth). Default: 5 MiB (5242880). |
 | `animation_durations` | `{}` | Per-animation per-frame duration overrides in **milliseconds**. Each value is a list, one entry per frame. Length **must** match the default frame count for that animation (the spritesheet row has a fixed number of cells); mismatched, malformed, or unknown entries are silently ignored. Animation names: `idle`, `running-right`, `running-left`, `waving`, `jumping`, `failed`, `waiting`, `running`, `review` — frame counts: see `scripts/config.py:ANIMATIONS`. JSON is the only entry point; there is no slash command for this. |
+
+### Process rules
+
+`process_rules` maps agent processes to pets, so any agent (not only Claude Code and Codex) can have its own pet. Each entry:
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `process` | yes | Regex searched (not fully matched, so anchor with `^`/`$` when needed; case-sensitive, use `(?i)` to ignore case) against each ancestor process's `comm` and the basename of its `argv[0]`. |
+| `id` | no | Pet folder under `~/.codex/pets/` (or this plugin's `pets/`) to show for matching sessions. Without it the current pet stays. |
+| `animation_durations` | no | Same shape as the global key. Entries override the global `animation_durations` while a matching session's pet is shown. |
+
+When a hook fires, the relay walks up the process tree: rules are tried in order (the first rule matching any ancestor wins, nearest ancestor first), and only if none matches does the built-in `claude` / `codex` detection apply. The matching process is also the one whose exit ends the session. As before, the pet switches on each `SessionStart`, and when a session ends it reverts to the remaining sessions' pet if they all share one rule. Invalid entries (bad regex, missing `process`) are skipped and logged.
+
+`claude_pet_id` and `codex_pet_id` still work for sessions that no rule matches, but the daemon shows a warning bubble (once per daemon run) while they are set. The equivalent rules are `{"process": "^claude$", "id": "..."}` and `{"process": "^codex$", "id": "..."}`.
 
 Override the pet via env var: `CLAUDE_PET_ID=<id>` or `CODEX_PET_ID=<id>`.
 

@@ -314,3 +314,67 @@ class TestAnimationDurationOverrides:
         mod = reload_config({"waving": [1, 2, 3, 4]})
         assert mod.ANIMATIONS["waving"]["durations"] == [1, 2, 3, 4]
         assert mod.ANIMATIONS["idle"]["durations"] == DEFAULT_IDLE
+
+
+class TestProcessRules:
+    def rules(self, paths, *entries, **extra):
+        cfg = {"process_rules": list(entries), **extra}
+        write_user_config(paths, cfg)
+        return config.load_process_rules()
+
+    def test_no_rules_by_default(self, paths):
+        assert config.load_process_rules() == []
+
+    def test_parses_rule_fields(self, paths):
+        (rule,) = self.rules(paths, {
+            "process": "^my-agent$", "id": " mine ",
+            "animation_durations": {"waving": [1, 2, 3, 4], "idle": [1]},
+        })
+        assert rule.process == "^my-agent$"
+        assert rule.pet_id == "mine"
+        assert rule.animation_durations == {"waving": [1, 2, 3, 4]}, "invalid entry dropped"
+        assert rule.matches(["x", "my-agent"]) and not rule.matches(["my-agent2"])
+
+    def test_pattern_is_searched_not_fully_matched(self, paths):
+        (rule,) = self.rules(paths, {"process": "agent"})
+        assert rule.matches(["my-agent-wrapper"])
+
+    def test_id_and_durations_are_optional(self, paths):
+        (rule,) = self.rules(paths, {"process": "x"})
+        assert rule.pet_id == "" and rule.animation_durations == {}
+
+    def test_malformed_entries_are_skipped_and_reported(self, paths):
+        write_user_config(paths, {"process_rules": [
+            "string", {"id": "no-process"}, {"process": ""}, {"process": "("},
+            {"process": "ok"},
+        ]})
+        errors = []
+        rules = config.load_process_rules(on_error=errors.append)
+        assert [r.process for r in rules] == ["ok"]
+        assert len(errors) == 4
+
+    def test_non_list_is_ignored(self, paths):
+        write_user_config(paths, {"process_rules": {"process": "x"}})
+        assert config.load_process_rules() == []
+
+
+class TestResolveProfile:
+    def test_rule_profile(self, paths):
+        write_user_config(paths, {"claude_pet_id": "legacy", "process_rules": [
+            {"process": "a", "id": "pet-a", "animation_durations": {"waving": [1, 2, 3, 4]}},
+        ]})
+        profile = config.resolve_profile("claude", "a")
+        assert profile == config.Profile("pet-a", {"waving": [1, 2, 3, 4]})
+
+    def test_unknown_rule_yields_empty_profile(self, paths):
+        write_user_config(paths, {"claude_pet_id": "legacy"})
+        assert config.resolve_profile("claude", "gone") == config.Profile()
+
+    @pytest.mark.parametrize("agent,expected", [("claude", "c"), ("codex", "x"), ("", "")])
+    def test_legacy_keys_back_builtin_agents(self, paths, agent, expected):
+        write_user_config(paths, {"claude_pet_id": "c", "codex_pet_id": "x"})
+        assert config.resolve_profile(agent, "").pet_id == expected
+
+    def test_legacy_keys_in_use(self, paths):
+        write_user_config(paths, {"claude_pet_id": "c", "codex_pet_id": " "})
+        assert config.legacy_pet_id_keys_in_use() == ["claude_pet_id"]

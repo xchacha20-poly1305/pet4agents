@@ -14,6 +14,7 @@ import config
 from tests.conftest import import_pet_daemon, make_pet, write_user_config
 
 pet_daemon = import_pet_daemon()
+S = pet_daemon.Session
 
 
 # ── pet directory helpers ─────────────────────────────────────────────────
@@ -202,6 +203,16 @@ class TestAnimationController:
         a.frame_index = 999
         assert a.current_duration_ms() == config.ANIMATIONS["idle"]["durations"][-1]
 
+    def test_duration_overrides_replace_only_their_animation(self):
+        a = pet_daemon.AnimationController()
+        a.duration_overrides = {"waving": [1, 2, 3, 4]}
+        a.set("waving", True, repeats=1)
+        assert [a.current_duration_ms() for _ in range(1)] == [1]
+        a.advance()
+        assert a.current_duration_ms() == 2
+        a.set("idle", False)
+        assert a.current_duration_ms() == config.ANIMATIONS["idle"]["durations"][0]
+
     def test_oneshot_reports_completion_after_its_cycles(self):
         a = pet_daemon.AnimationController()
         a.set("waving", True, repeats=1)
@@ -256,6 +267,8 @@ class FakeWindow:
     _should_quit_now = pet_daemon.PetWindow._should_quit_now
     _reap_dead_sessions = pet_daemon.PetWindow._reap_dead_sessions
     _maybe_revert_pet = pet_daemon.PetWindow._maybe_revert_pet
+    _warn_legacy_keys = pet_daemon.PetWindow._warn_legacy_keys
+    _switch_profile = pet_daemon.PetWindow._switch_profile
     _NO_SESSION_QUIT_DELAY_MS = pet_daemon.PetWindow._NO_SESSION_QUIT_DELAY_MS
 
     def __init__(self):
@@ -267,6 +280,8 @@ class FakeWindow:
         self.active_sessions = {}
         self.quit_scheduled = 0
         self.switched_to = []
+        self._warned_legacy_keys = set()
+        self.notices = []
 
     # stubs for the Qt-touching collaborators
     def _restart_timer(self):
@@ -276,8 +291,14 @@ class FakeWindow:
         if self._should_quit_now():
             self.quit_scheduled += 1
 
-    def _switch_pet_for_agent(self, agent_type):
-        self.switched_to.append(agent_type)
+    def _load_pet(self, pet_dir, meta):
+        self.switched_to.append(pet_dir.name)
+
+    def _render_current_frame(self):
+        pass
+
+    def _show_notice(self, message):
+        self.notices.append(message)
 
     def play(self, events, session="s1"):
         for ev in events:
@@ -474,8 +495,7 @@ class TestAnimationPriority:
 class TestSessionTracking:
     def test_session_start_registers(self, win):
         win.apply_event("SessionStart", "s1", 100, "claude")
-        assert win.active_sessions == {"s1": (100, "claude")}
-        assert win.switched_to == ["claude"]
+        assert win.active_sessions == {"s1": S(100, "claude")}
 
     def test_session_end_drains(self, win):
         win.apply_event("SessionStart", "s1", 100, "claude")
@@ -485,18 +505,17 @@ class TestSessionTracking:
 
     def test_mid_stream_session_is_learned(self, win):
         win.apply_event("UserPromptSubmit", "s1", 100, "codex")
-        assert win.active_sessions == {"s1": (100, "codex")}
-        assert win.switched_to == [], "only SessionStart switches pets"
+        assert win.active_sessions == {"s1": S(100, "codex")}
 
     def test_pid_is_late_bound(self, win):
         win.apply_event("SessionStart", "s1", 0, "codex")
         win.apply_event("UserPromptSubmit", "s1", 555, "codex")
-        assert win.active_sessions["s1"] == (555, "codex")
+        assert win.active_sessions["s1"] == S(555, "codex")
 
     def test_known_pid_is_not_overwritten_by_zero(self, win):
         win.apply_event("SessionStart", "s1", 555, "codex")
         win.apply_event("UserPromptSubmit", "s1", 0, "codex")
-        assert win.active_sessions["s1"] == (555, "codex")
+        assert win.active_sessions["s1"] == S(555, "codex")
 
     def test_events_without_session_id_are_ignored_for_tracking(self, win):
         win.apply_event("Stop", "", 100, "claude")
@@ -509,14 +528,32 @@ class TestSessionTracking:
         assert list(win.active_sessions) == ["s2"]
         assert win.quit_scheduled == 0, "another session is still alive"
 
-    def test_reverts_pet_when_one_tool_remains(self, win):
+    def test_session_start_switches_pet(self, win, paths):
+        make_pet(config.CODEX_PETS_DIR, "claude-pet")
+        write_user_config(paths, {"claude_pet_id": "claude-pet"})
+        win.apply_event("SessionStart", "s1", 1, "claude")
+        assert win.switched_to == ["claude-pet"]
+
+    def test_only_session_start_switches_pets(self, win, paths):
+        make_pet(config.CODEX_PETS_DIR, "codex-pet")
+        write_user_config(paths, {"codex_pet_id": "codex-pet"})
+        win.apply_event("UserPromptSubmit", "s1", 100, "codex")
+        assert win.switched_to == []
+
+    def test_reverts_pet_when_one_tool_remains(self, win, paths):
+        make_pet(config.CODEX_PETS_DIR, "claude-pet")
+        make_pet(config.CODEX_PETS_DIR, "codex-pet")
+        write_user_config(paths, {"claude_pet_id": "claude-pet", "codex_pet_id": "codex-pet"})
         win.apply_event("SessionStart", "s1", 1, "claude")
         win.apply_event("SessionStart", "s2", 2, "codex")
         win.switched_to.clear()
         win.apply_event("SessionEnd", "s1", 1, "claude")
-        assert win.switched_to == ["codex"]
+        assert win.switched_to == ["codex-pet"]
 
-    def test_no_revert_when_two_tools_remain(self, win):
+    def test_no_revert_when_two_tools_remain(self, win, paths):
+        make_pet(config.CODEX_PETS_DIR, "claude-pet")
+        make_pet(config.CODEX_PETS_DIR, "codex-pet")
+        write_user_config(paths, {"claude_pet_id": "claude-pet", "codex_pet_id": "codex-pet"})
         win.apply_event("SessionStart", "s1", 1, "claude")
         win.apply_event("SessionStart", "s2", 2, "codex")
         win.apply_event("SessionStart", "s3", 3, "claude")
@@ -527,6 +564,80 @@ class TestSessionTracking:
     def test_unknown_session_end_is_harmless(self, win):
         win.apply_event("SessionEnd", "never-seen", 0, "claude")
         assert win.active_sessions == {}
+
+
+class TestProcessRuleProfiles:
+    RULES = [
+        {"process": "^my-agent$", "id": "mine"},
+        {"process": "aider", "id": "other",
+         "animation_durations": {"waving": [1, 2, 3, 4]}},
+    ]
+
+    @pytest.fixture(autouse=True)
+    def pets(self, paths):
+        for pet_id in ("mine", "other", "claude-pet"):
+            make_pet(config.CODEX_PETS_DIR, pet_id)
+        write_user_config(paths, {"process_rules": self.RULES})
+
+    def test_rule_session_loads_the_rule_pet(self, win):
+        win.apply_event("SessionStart", "s1", 5, "", "", "^my-agent$")
+        assert win.active_sessions == {"s1": S(5, "", "^my-agent$")}
+        assert win.switched_to == ["mine"]
+
+    def test_rule_takes_priority_over_the_legacy_key(self, win, paths):
+        write_user_config(paths, {"claude_pet_id": "claude-pet", "process_rules": self.RULES})
+        win.apply_event("SessionStart", "s1", 5, "claude", "", "^my-agent$")
+        assert win.switched_to == ["mine"]
+
+    def test_rule_durations_are_applied_and_reset(self, win):
+        win.apply_event("SessionStart", "s1", 5, "", "", "aider")
+        assert win.anim.duration_overrides == {"waving": [1, 2, 3, 4]}
+        win.apply_event("SessionStart", "s2", 6, "", "", "^my-agent$")
+        assert win.anim.duration_overrides == {}
+
+    def test_unknown_rule_changes_nothing(self, win):
+        win.apply_event("SessionStart", "s1", 5, "", "", "removed-from-config")
+        assert win.switched_to == []
+
+    def test_reverts_to_the_remaining_rule_session(self, win):
+        win.apply_event("SessionStart", "s1", 1, "", "", "^my-agent$")
+        win.apply_event("SessionStart", "s2", 2, "", "", "aider")
+        win.switched_to.clear()
+        win.apply_event("SessionEnd", "s2", 2)
+        assert win.switched_to == ["mine"]
+
+    def test_rule_is_kept_when_the_pid_is_late_bound(self, win):
+        win.apply_event("SessionStart", "s1", 0, "", "", "aider")
+        win.apply_event("UserPromptSubmit", "s1", 9, "", "", "")
+        assert win.active_sessions["s1"] == S(9, "", "aider")
+
+
+class TestLegacyKeyWarning:
+    def test_warns_once_per_key(self, win, paths):
+        write_user_config(paths, {"claude_pet_id": "a", "codex_pet_id": "b"})
+        win.apply_event("SessionStart", "s1", 1, "claude")
+        win.apply_event("SessionStart", "s2", 2, "codex")
+        assert len(win.notices) == 1
+        assert "claude_pet_id" in win.notices[0] and "codex_pet_id" in win.notices[0]
+
+    def test_a_later_key_warns_separately(self, win, paths):
+        write_user_config(paths, {"claude_pet_id": "a"})
+        win.apply_event("SessionStart", "s1", 1, "claude")
+        write_user_config(paths, {"claude_pet_id": "a", "codex_pet_id": "b"})
+        win.apply_event("SessionStart", "s2", 2, "codex")
+        assert len(win.notices) == 2
+        assert "codex_pet_id" in win.notices[1] and "claude_pet_id" not in win.notices[1]
+
+    def test_empty_keys_do_not_warn(self, win, paths):
+        write_user_config(paths, {"claude_pet_id": "  ", "process_rules": []})
+        win.apply_event("SessionStart", "s1", 1, "claude")
+        assert win.notices == []
+
+    def test_legacy_pet_still_loads_with_the_warning(self, win, paths):
+        make_pet(config.CODEX_PETS_DIR, "old")
+        write_user_config(paths, {"claude_pet_id": "old"})
+        win.apply_event("SessionStart", "s1", 1, "claude")
+        assert win.switched_to == ["old"] and len(win.notices) == 1
 
 
 class TestQuitPolicy:
@@ -550,32 +661,32 @@ class TestQuitPolicy:
 
 class TestReapDeadSessions:
     def test_dead_pid_is_reaped(self, win, monkeypatch):
-        win.active_sessions = {"s1": (12345, "claude")}
+        win.active_sessions = {"s1": S(12345, "claude")}
         monkeypatch.setattr(pet_daemon.os, "kill", _raiser(ProcessLookupError))
         win._reap_dead_sessions()
         assert win.active_sessions == {}
         assert win.quit_scheduled == 1
 
     def test_live_pid_is_kept(self, win, monkeypatch):
-        win.active_sessions = {"s1": (12345, "claude")}
+        win.active_sessions = {"s1": S(12345, "claude")}
         monkeypatch.setattr(pet_daemon.os, "kill", lambda *a: None)
         win._reap_dead_sessions()
         assert list(win.active_sessions) == ["s1"]
 
     def test_permission_error_treated_as_alive(self, win, monkeypatch):
-        win.active_sessions = {"s1": (12345, "claude")}
+        win.active_sessions = {"s1": S(12345, "claude")}
         monkeypatch.setattr(pet_daemon.os, "kill", _raiser(PermissionError))
         win._reap_dead_sessions()
         assert list(win.active_sessions) == ["s1"]
 
     def test_sessions_without_pid_are_never_reaped(self, win, monkeypatch):
-        win.active_sessions = {"s1": (0, "codex")}
+        win.active_sessions = {"s1": S(0, "codex")}
         monkeypatch.setattr(pet_daemon.os, "kill", _raiser(ProcessLookupError))
         win._reap_dead_sessions()
         assert list(win.active_sessions) == ["s1"]
 
     def test_only_dead_sessions_are_dropped(self, win, monkeypatch):
-        win.active_sessions = {"alive": (1, "claude"), "dead": (2, "codex")}
+        win.active_sessions = {"alive": S(1, "claude"), "dead": S(2, "codex")}
 
         def kill(pid, _sig):
             if pid == 2:

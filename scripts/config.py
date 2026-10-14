@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+from dataclasses import dataclass, field
 from pathlib import Path
 
 # --- Atlas geometry (matches Codex pet contract) ---
@@ -291,11 +293,18 @@ def truncate_log_if_needed(log_path: Path, max_bytes: int) -> None:
 DEFAULT_USER_CONFIG: dict = {
     # Empty string = use auto-discovery order (env -> codex pets -> plugin pets).
     "pet_id": "",
-    # Per-tool pet IDs. When set, the daemon switches to this pet on the first
+    # DEPRECATED — superseded by `process_rules` (the daemon warns when either
+    # is set). Per-tool pet IDs: the daemon switches to this pet on the first
     # SessionStart from that tool and reverts when only the other tool's
     # sessions remain. Empty string = fall back to shared `pet_id` discovery.
     "claude_pet_id": "",
     "codex_pet_id": "",
+    # Custom agent-process rules, tried in order before the built-in
+    # claude/codex detection. Each entry:
+    #   { "process": "<regex>", "id": "<pet id>",
+    #     "animation_durations": { ... } }   # optional, overrides the global map
+    # See `ProcessRule`.
+    "process_rules": [],
     # v2 pets only: turn the pet's head toward the mouse pointer while it is
     # idle. Ignored for v1 pets (their atlas has no look rows).
     "look_at_cursor": True,
@@ -339,45 +348,138 @@ def load_user_config() -> dict:
     return cfg
 
 
-def _apply_animation_duration_overrides() -> None:
-    """Mutate `ANIMATIONS` in-place with any per-animation duration overrides
-    found in the user config. Called once at import time so every consumer of
-    `config.ANIMATIONS` (notably `pet_daemon.py`) sees the user's values
-    without needing its own merge step.
+def valid_duration_overrides(overrides) -> dict[str, list[int]]:
+    """Filter a user-authored `animation_durations` map down to the entries
+    that can safely replace `ANIMATIONS` durations.
 
     Validation rules (all failures are silent):
-      - override map must be a dict
+      - the map must be a dict
       - animation name must already exist in `ANIMATIONS`
       - value must be a list/tuple of positive numbers
       - length must match the default durations length (frame count is fixed
         by the spritesheet row, so changing it would desync rendering)
     """
-    try:
-        cfg = load_user_config()
-    except Exception:
-        return
-    overrides = cfg.get("animation_durations")
     if not isinstance(overrides, dict):
-        return
+        return {}
+    valid: dict[str, list[int]] = {}
     for name, durs in overrides.items():
         spec = ANIMATIONS.get(name)
         if not spec:
             continue
         if not isinstance(durs, (list, tuple)):
             continue
-        default = spec["durations"]
-        if len(durs) != len(default):
+        if len(durs) != len(spec["durations"]):
             continue
-        cleaned: list[int] = []
-        ok = True
-        for d in durs:
-            if isinstance(d, bool) or not isinstance(d, (int, float)) or d <= 0:
-                ok = False
-                break
-            cleaned.append(int(d))
-        if not ok:
+        if any(isinstance(d, bool) or not isinstance(d, (int, float)) or d <= 0
+               for d in durs):
             continue
-        spec["durations"] = cleaned
+        valid[name] = [int(d) for d in durs]
+    return valid
+
+
+def _apply_animation_duration_overrides() -> None:
+    """Mutate `ANIMATIONS` in-place with the global per-animation duration
+    overrides found in the user config. Called once at import time so every
+    consumer of `config.ANIMATIONS` (notably `pet_daemon.py`) sees the user's
+    values without needing its own merge step. Per-rule overrides
+    (`ProcessRule.animation_durations`) layer on top of this at runtime."""
+    try:
+        cfg = load_user_config()
+    except Exception:
+        return
+    for name, durs in valid_duration_overrides(cfg.get("animation_durations")).items():
+        ANIMATIONS[name]["durations"] = durs
+
+
+# --- Per-process profiles ---
+#
+# A profile says which pet to show (and how fast it animates) for sessions of
+# one agent. `process_rules` entries match the agent's process by name; the
+# deprecated `claude_pet_id` / `codex_pet_id` keys are the fallback for the
+# built-in claude/codex detection.
+
+LEGACY_PET_ID_KEYS = ("claude_pet_id", "codex_pet_id")
+
+
+@dataclass(frozen=True)
+class ProcessRule:
+    """One `process_rules` entry. `process` is a regex searched (not fully
+    matched — anchor it with ^/$ if needed) against the process's `comm` and
+    its argv[0] basename."""
+
+    process: str
+    pattern: re.Pattern
+    pet_id: str = ""
+    animation_durations: dict = field(default_factory=dict)
+
+    def matches(self, names) -> bool:
+        return any(self.pattern.search(n) for n in names)
+
+
+@dataclass(frozen=True)
+class Profile:
+    pet_id: str = ""
+    animation_durations: dict = field(default_factory=dict)
+
+
+def load_process_rules(cfg: dict | None = None, on_error=None) -> list[ProcessRule]:
+    """Parse `process_rules` from the user config. Malformed entries are
+    skipped, and each is reported through `on_error(message)` when given, so
+    one typo never disables the other rules."""
+    report = on_error or (lambda msg: None)
+    raw = (cfg if cfg is not None else load_user_config()).get("process_rules")
+    if not raw:
+        return []
+    if not isinstance(raw, list):
+        report("process_rules must be a list")
+        return []
+    rules: list[ProcessRule] = []
+    for i, entry in enumerate(raw):
+        process = entry.get("process") if isinstance(entry, dict) else None
+        if not isinstance(process, str) or not process:
+            report(f"process_rules[{i}]: missing 'process' regex")
+            continue
+        try:
+            pattern = re.compile(process)
+        except re.error as e:
+            report(f"process_rules[{i}]: bad regex {process!r}: {e}")
+            continue
+        pet_id = entry.get("id")
+        rules.append(ProcessRule(
+            process=process,
+            pattern=pattern,
+            pet_id=pet_id.strip() if isinstance(pet_id, str) else "",
+            animation_durations=valid_duration_overrides(
+                entry.get("animation_durations")
+            ),
+        ))
+    return rules
+
+
+def resolve_profile(agent_type: str, rule: str, cfg: dict | None = None) -> Profile:
+    """Profile for a session. `rule` is the `process` of the custom rule that
+    matched its agent process ("" for built-in detection); it takes priority,
+    and `agent_type` ("claude"|"codex") then selects the legacy per-tool id."""
+    cfg = cfg if cfg is not None else load_user_config()
+    if rule:
+        for r in load_process_rules(cfg):
+            if r.process == rule:
+                return Profile(r.pet_id, r.animation_durations)
+        return Profile()
+    if agent_type in ("claude", "codex"):
+        legacy = cfg.get(f"{agent_type}_pet_id")
+        if isinstance(legacy, str):
+            return Profile(legacy.strip())
+    return Profile()
+
+
+def legacy_pet_id_keys_in_use(cfg: dict | None = None) -> list[str]:
+    """Deprecated `*_pet_id` keys that the user config fills in."""
+    cfg = cfg if cfg is not None else load_user_config()
+    return [
+        key for key in LEGACY_PET_ID_KEYS
+        if isinstance(cfg.get(key), str) and cfg[key].strip()
+    ]
 
 
 _apply_animation_duration_overrides()

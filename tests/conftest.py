@@ -21,7 +21,7 @@ import config  # noqa: E402
 
 _QT_STUB_NAMES = {
     "PySide6.QtCore": ["QByteArray", "QPoint", "QRect", "QSize", "Qt", "QTimer", "Signal"],
-    "PySide6.QtGui": ["QCursor", "QGuiApplication", "QPainter", "QPixmap"],
+    "PySide6.QtGui": ["QColor", "QCursor", "QGuiApplication", "QPainter", "QPen", "QPixmap"],
     "PySide6.QtNetwork": ["QLocalServer", "QLocalSocket"],
     "PySide6.QtWidgets": ["QApplication", "QLabel", "QMenu", "QWidget"],
 }

@@ -29,6 +29,7 @@ import sys
 import time
 import traceback
 from pathlib import Path
+from typing import NamedTuple
 
 # Make `import config` work regardless of cwd
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -342,7 +343,10 @@ def send_to_daemon(payload: dict, timeout: float = 1.0) -> bool:
 # `os.getppid()` alone isn't always the agent — hooks may run via a
 # shell wrapper that exits as soon as the hook returns, which would make the
 # daemon think the session died immediately. So we walk up the /proc tree
-# until we find an ancestor whose comm/argv[0] looks like Claude or Codex.
+# until we find an ancestor whose comm/argv[0] looks like the agent: first the
+# user's `process_rules` (config.json, tried in order), then the built-in
+# Claude / Codex names. A custom match reports the rule instead of an agent
+# type, since the rule decides the pet.
 # If no reliable ancestor is found, return parent_pid=0 so the daemon will not
 # use a short-lived shell wrapper for liveness. Agent type can still be inferred
 # from an explicit hook command marker or hook-specific environment variables.
@@ -370,27 +374,37 @@ def _read_argv(pid: int) -> list[str]:
         return []
 
 
-def _agent_name(pid: int) -> str:
-    """Return the agent name ("claude"|"codex") if pid is a supported agent binary, else "".
-
-    Matches on `comm` (kernel-truncated executable basename) and argv[0]'s
-    basename. This keeps us from matching shell wrappers whose cmdline merely
-    references paths under `~/.claude/` or `~/.codex/`.
-    """
+def _process_names(pid: int) -> list[str]:
+    """Names a process answers to: its `comm` (kernel-truncated executable
+    basename) and argv[0]'s basename. Matching these rather than the whole
+    cmdline keeps us from matching shell wrappers whose cmdline merely
+    references paths under `~/.claude/` or `~/.codex/`."""
+    names: list[str] = []
     try:
-        comm = Path(f"/proc/{pid}/comm").read_text("utf-8").strip().lower()
-        if comm in AGENT_PROCESS_NAMES:
-            return comm
+        comm = Path(f"/proc/{pid}/comm").read_text("utf-8").strip()
+        if comm:
+            names.append(comm)
     except OSError:
         pass
     argv = _read_argv(pid)
     if argv:
-        name = Path(argv[0]).name.lower()
+        names.append(Path(argv[0]).name)
+    return names
+
+
+def _builtin_agent_name(names: list[str]) -> str:
+    """Return "claude"|"codex" if one of `names` is a supported agent binary."""
+    for name in names:
         # Strip a trailing .exe defensively for unusual wrapper builds.
-        name = name.removesuffix(".exe")
+        name = name.lower().removesuffix(".exe")
         if name in AGENT_PROCESS_NAMES:
             return name
     return ""
+
+
+def _agent_name(pid: int) -> str:
+    """Return the agent name ("claude"|"codex") if pid is a supported agent binary, else ""."""
+    return _builtin_agent_name(_process_names(pid))
 
 
 STDIO_LISTEN_URLS = {"stdio", "stdio://"}
@@ -447,36 +461,58 @@ def _infer_agent_type_from_env() -> str:
     return ""
 
 
-def find_agent_info() -> tuple[int, str]:
-    """Walk up the process tree to find the Claude Code or Codex process.
+class AgentInfo(NamedTuple):
+    """Who fired a hook. `pid` is the process to poll for liveness (0 = none
+    reliable). A custom `process_rules` match sets `rule` (that rule's
+    `process` regex) and leaves `agent_type` empty; built-in detection sets
+    `agent_type` ("claude"|"codex") and leaves `rule` empty."""
 
-    Returns (pid, agent_type) where agent_type is "claude"|"codex"|"".
-    Returns (0, inferred_agent_type) if no reliable liveness PID is found,
-    and (0, "codex") when the hook runs inside a shared Codex app-server."""
-    fallback_agent_type = _infer_agent_type_from_env()
+    pid: int
+    agent_type: str
+    rule: str = ""
+
+
+def _ancestor_pids() -> list[int]:
+    """Process ancestors of this hook, nearest first."""
+    chain: list[int] = []
+    pid = os.getppid()
+    # Cap iterations to defend against hostile /proc edits — process trees
+    # in practice are well under 64 deep.
+    for _ in range(64):
+        if pid <= 1 or pid in chain:
+            break
+        chain.append(pid)
+        pid = _read_ppid(pid)
+    return chain
+
+
+def find_agent_info() -> AgentInfo:
+    """Walk up the process tree to find the agent process.
+
+    Custom `process_rules` win over built-in detection: rules are tried in
+    config order, each against the ancestors nearest first. Without a custom
+    match the nearest Claude Code or Codex ancestor is used.
+    Returns pid=0 with the type inferred from the environment if no reliable
+    liveness PID is found, and pid=0 for a shared Codex app-server."""
+    fallback = AgentInfo(0, _infer_agent_type_from_env())
     try:
         if not Path("/proc").exists():
-            return 0, fallback_agent_type
-        pid = os.getppid()
-        seen: set[int] = set()
-        # Cap iterations to defend against hostile /proc edits — process trees
-        # in practice are well under 64 deep.
-        for _ in range(64):
-            if pid <= 1 or pid in seen:
-                break
-            seen.add(pid)
-            name = _agent_name(pid)
+            return fallback
+        ancestors = _ancestor_pids()
+        names = {pid: _process_names(pid) for pid in ancestors}
+        for rule in config.load_process_rules():
+            for pid in ancestors:
+                if rule.matches(names[pid]):
+                    return AgentInfo(pid, "", rule.process)
+        for pid in ancestors:
+            name = _builtin_agent_name(names[pid])
             if name:
                 if name == "codex" and _is_shared_app_server(pid):
-                    return 0, name
-                return pid, name
-            ppid = _read_ppid(pid)
-            if ppid <= 0:
-                break
-            pid = ppid
+                    return AgentInfo(0, name)
+                return AgentInfo(pid, name)
     except Exception:
         pass
-    return 0, fallback_agent_type
+    return fallback
 
 
 def find_agent_pid() -> int:
@@ -587,7 +623,7 @@ def cmd_event(event_name: str) -> None:
     if config.is_noise_event(event_name, hook_data):
         return
 
-    agent_pid, agent_type = find_agent_info()
+    agent = find_agent_info()
     payload = {
         "kind": "event",
         "event": event_name,
@@ -596,9 +632,11 @@ def cmd_event(event_name: str) -> None:
         # Daemon polls this PID for liveness so it can drain the session even
         # if SessionEnd never fires (agent crash / SIGKILL / terminal closed).
         # 0 when no process's lifetime matches the session's (see above).
-        "parent_pid": agent_pid,
-        # Which tool fired this event — used for per-tool pet selection.
-        "agent_type": agent_type,
+        "parent_pid": agent.pid,
+        # Which agent fired this event — selects the pet and animation timing.
+        # Either a built-in type or the custom `process_rules` entry that matched.
+        "agent_type": agent.agent_type,
+        "process_rule": agent.rule,
     }
     # SessionStart.source decides whether the greeting wave plays. Other
     # events ignore it.
