@@ -1,6 +1,6 @@
 ---
 name: codex-pet
-description: Control the pet4agents desktop pet from Codex. Use when the user asks to stop, hide or show the pet, switch the active pet, or inspect pet configuration/logs.
+description: Control the pet4agents desktop pet from Codex. Use when the user asks to stop, hide or show the pet, switch the active pet, verify the config, or inspect pet configuration/logs.
 ---
 
 # Codex Pet
@@ -50,6 +50,19 @@ pets with:
 ```bash
 ls -1 ~/.codex/pets/ 2>/dev/null
 ```
+
+## Verify the Config
+
+When the user asks to check or validate the pet configuration, run:
+
+```bash
+./scripts/pet_event.py verify
+```
+
+It exits 1 and lists the problems when `~/.config/pet4agents/config.json` has
+deprecated keys (`claude_pet_id` / `codex_pet_id`), unknown keys, wrongly typed
+values, or malformed `process_rules` / `animation_durations` entries. Report
+the output and, if there are problems, offer to fix them.
 
 ## Debug
 

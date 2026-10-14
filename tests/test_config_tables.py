@@ -378,3 +378,36 @@ class TestResolveProfile:
     def test_legacy_keys_in_use(self, paths):
         write_user_config(paths, {"claude_pet_id": "c", "codex_pet_id": " "})
         assert config.legacy_pet_id_keys_in_use() == ["claude_pet_id"]
+
+
+# ── verify_config ─────────────────────────────────────────────────────────
+
+
+class TestVerifyConfig:
+    def test_valid_config_has_no_problems(self):
+        cfg = {
+            "pet_id": "x",
+            "process_rules": [{"process": "^a$", "id": "p"}],
+            "look_radius": 10,
+            "animation_durations": {
+                "idle": list(config.ANIMATIONS["idle"]["durations"])
+            },
+        }
+        assert config.verify_config(cfg) == []
+
+    def test_deprecated_unknown_and_bad_values(self):
+        problems = config.verify_config({
+            "claude_pet_id": "",
+            "bogus": 1,
+            "look_at_cursor": "yes",
+            "process_rules": [{"process": "(", "extra": 1}],
+            "animation_durations": {"nope": [1], "idle": [1]},
+        })
+        text = "\n".join(problems)
+        for needle in ("claude_pet_id: deprecated", "bogus: unknown",
+                       "look_at_cursor", "process_rules[0].extra",
+                       "bad regex", "nope: unknown", "idle: must be"):
+            assert needle in text
+
+    def test_non_object(self):
+        assert config.verify_config([])

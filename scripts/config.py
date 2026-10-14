@@ -482,4 +482,95 @@ def legacy_pet_id_keys_in_use(cfg: dict | None = None) -> list[str]:
     ]
 
 
+# --- Config verification (`pet_event.py verify`) ---
+#
+# The loaders above are deliberately forgiving. `verify_config` is the strict
+# counterpart: it inspects the raw file content and reports everything the
+# loaders would silently ignore or only warn about.
+
+PROCESS_RULE_KEYS = ("process", "id", "animation_durations")
+
+
+def _is_number(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _verify_duration_map(overrides, where: str) -> list[str]:
+    if not isinstance(overrides, dict):
+        return [f"{where}: must be an object"]
+    problems: list[str] = []
+    for name, durs in overrides.items():
+        spec = ANIMATIONS.get(name)
+        if spec is None:
+            problems.append(f"{where}.{name}: unknown animation")
+        elif not isinstance(durs, (list, tuple)) or len(durs) != len(spec["durations"]):
+            problems.append(
+                f"{where}.{name}: must be a list of {len(spec['durations'])} numbers"
+            )
+        elif any(not _is_number(d) or d <= 0 for d in durs):
+            problems.append(f"{where}.{name}: entries must be positive numbers")
+    return problems
+
+
+def _verify_process_rules(rules) -> list[str]:
+    if not isinstance(rules, list):
+        return ["process_rules: must be a list"]
+    problems: list[str] = []
+    for i, entry in enumerate(rules):
+        where = f"process_rules[{i}]"
+        if not isinstance(entry, dict):
+            problems.append(f"{where}: must be an object")
+            continue
+        for key in entry:
+            if key not in PROCESS_RULE_KEYS:
+                problems.append(f"{where}.{key}: unknown field")
+        process = entry.get("process")
+        if not isinstance(process, str) or not process:
+            problems.append(f"{where}.process: missing regex")
+        else:
+            try:
+                re.compile(process)
+            except re.error as e:
+                problems.append(f"{where}.process: bad regex {process!r}: {e}")
+        if "id" in entry and not isinstance(entry["id"], str):
+            problems.append(f"{where}.id: must be a string")
+        if "animation_durations" in entry:
+            problems += _verify_duration_map(
+                entry["animation_durations"], f"{where}.animation_durations"
+            )
+    return problems
+
+
+def verify_config(data) -> list[str]:
+    """Problems found in the parsed content of `config.json` (empty = valid).
+
+    Reports unknown and deprecated keys, wrongly typed values, and malformed
+    `process_rules` / `animation_durations` entries."""
+    if not isinstance(data, dict):
+        return ["config must be a JSON object"]
+    problems: list[str] = []
+    for key, value in data.items():
+        if key in LEGACY_PET_ID_KEYS:
+            problems.append(f"{key}: deprecated, use process_rules")
+        elif key not in DEFAULT_USER_CONFIG:
+            problems.append(f"{key}: unknown field")
+        elif key == "process_rules":
+            problems += _verify_process_rules(value)
+        elif key == "animation_durations":
+            problems += _verify_duration_map(value, key)
+        elif key == "pet_id":
+            if not isinstance(value, str):
+                problems.append(f"{key}: must be a string")
+        elif key in ("look_at_cursor", "stay_even_no_session"):
+            if not isinstance(value, bool):
+                problems.append(f"{key}: must be true or false")
+        elif key in ("look_radius", "look_deadzone"):
+            if not _is_number(value) or value <= 0:
+                problems.append(f"{key}: must be a positive number")
+        elif key == "max_log_size":
+            if not _is_number(value) or value < 0:
+                problems.append(f"{key}: must be a non-negative number")
+    return problems
+
+
 _apply_animation_duration_overrides()

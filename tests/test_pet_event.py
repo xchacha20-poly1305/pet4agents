@@ -666,3 +666,20 @@ class TestHideShow:
     def test_not_running(self, paths, capsys):
         pet_event.cmd_show()
         assert "not running" in capsys.readouterr().out
+
+
+# ── verify ────────────────────────────────────────────────────────────────
+
+
+class TestVerify:
+    def test_missing_config_ok(self, paths):
+        assert pet_event.cmd_verify() == 0
+
+    def test_deprecated_key_fails(self, paths, capsys):
+        write_user_config(paths, {"codex_pet_id": "x"})
+        assert pet_event.cmd_verify() == 1
+        assert "deprecated" in capsys.readouterr().out
+
+    def test_clean_config_ok(self, paths):
+        write_user_config(paths, {"pet_id": "x"})
+        assert pet_event.cmd_verify() == 0

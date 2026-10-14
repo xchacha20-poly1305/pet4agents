@@ -8,6 +8,7 @@ Usage:
     pet_event.py set-pet <pet-id>     # switch the active pet
     pet_event.py hide [seconds]       # hide the pet (for N seconds, or until show)
     pet_event.py show                 # show a hidden pet again
+    pet_event.py verify               # check config.json (exit 1 on problems)
     pet_event.py daemon-spawn         # internal: start daemon (called via fork)
     pet_event.py daemon-spawn-event   # internal: background startup + event
 
@@ -716,6 +717,28 @@ def cmd_show() -> None:
     print("pet shown")
 
 
+def cmd_verify() -> int:
+    """Validate `config.json`; nonzero exit when it has deprecated, unknown or
+    malformed entries."""
+    path = config.CONFIG_PATH
+    if not path.exists():
+        print(f"{path}: not found, defaults apply")
+        return 0
+    try:
+        data = json.loads(path.read_text("utf-8"))
+    except (OSError, ValueError) as e:
+        print(f"{path}: cannot parse: {e}")
+        return 1
+    problems = config.verify_config(data)
+    if not problems:
+        print(f"{path}: OK")
+        return 0
+    print(f"{path}: {len(problems)} problem(s)")
+    for problem in problems:
+        print(f"  - {problem}")
+    return 1
+
+
 def main() -> int:
     args = sys.argv[1:]
     if not args:
@@ -739,6 +762,8 @@ def main() -> int:
     if sub == "show":
         cmd_show()
         return 0
+    if sub == "verify":
+        return cmd_verify()
     if sub == "daemon-spawn-event":
         if len(args) < 2:
             _log("usage: pet_event.py daemon-spawn-event <base64-json-payload>")
