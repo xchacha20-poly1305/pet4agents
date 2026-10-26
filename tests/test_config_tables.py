@@ -335,6 +335,25 @@ class TestProcessRules:
         assert rule.animation_durations == {"waving": [1, 2, 3, 4]}, "invalid entry dropped"
         assert rule.matches(["x", "my-agent"]) and not rule.matches(["my-agent2"])
 
+    @pytest.mark.parametrize("enabled", [True, False])
+    def test_enabled_is_loaded_and_validated(self, paths, enabled):
+        entry = {"process": "^ChatGPT$", "enabled": enabled}
+        (rule,) = self.rules(paths, entry)
+        assert rule.enabled is enabled
+        assert config.verify_config({"process_rules": [entry]}) == []
+
+    @pytest.mark.parametrize("enabled", [0, 1, None, "false", [], {}])
+    def test_invalid_enabled_is_skipped_and_reported(self, paths, enabled):
+        cfg = {"process_rules": [{"process": "^ChatGPT$", "enabled": enabled}]}
+        errors = []
+        assert config.load_process_rules(cfg, on_error=errors.append) == []
+        assert errors
+        assert config.verify_config(cfg) == ["process_rules[0].enabled: must be a boolean"]
+
+    def test_enabled_defaults_to_true(self, paths):
+        (rule,) = self.rules(paths, {"process": "^codex$"})
+        assert rule.enabled is True
+
     def test_pattern_is_searched_not_fully_matched(self, paths):
         (rule,) = self.rules(paths, {"process": "agent"})
         assert rule.matches(["my-agent-wrapper"])

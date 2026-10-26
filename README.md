@@ -180,10 +180,24 @@ Right-clicking the pet also offers "Hide for 10 seconds / 1 minute / 5 minutes";
 | Field | Required | Meaning |
 | --- | --- | --- |
 | `process` | yes | Regex searched (not fully matched, so anchor with `^`/`$` when needed; case-sensitive, use `(?i)` to ignore case) against each ancestor process's `comm` and the basename of its `argv[0]`. |
+| `enabled` | no | Boolean, default `true`. Set to `false` to ignore all hook events from matching sessions, including daemon startup. |
 | `id` | no | Pet folder under `~/.codex/pets/` (or this plugin's `pets/`) to show for matching sessions. Without it the current pet stays. |
 | `animation_durations` | no | Same shape as the global key. Entries override the global `animation_durations` while a matching session's pet is shown. |
 
 When a hook fires, the relay walks up the process tree: rules are tried in order (the first rule matching any ancestor wins, nearest ancestor first), and only if none matches does the built-in `claude` / `codex` detection apply. The matching process is also the one whose exit ends the session. As before, the pet switches on each `SessionStart`, and when a session ends it reverts to the remaining sessions' pet if they all share one rule. Invalid entries (bad regex, missing `process`) are skipped and logged.
+
+To exclude ChatGPT app sessions while keeping pets for terminal Codex sessions, put the host rule **before** the Codex rule:
+
+```json
+{
+  "process_rules": [
+    {"process": "^ChatGPT$", "enabled": false},
+    {"process": "^codex$", "id": "your-codex-pet"}
+  ]
+}
+```
+
+This matches the Linux ChatGPT app's `ChatGPT` ancestor even though its child agent process is named `codex`. Use the actual host process name on your installation. Disabled sessions do not hide a pet belonging to another active session. Rules are read on each hook; sessions already registered with the daemon are not removed retroactively, so end those sessions before enabling an exclusion or restart the pet daemon afterward.
 
 `claude_pet_id` and `codex_pet_id` still work for sessions that no rule matches, but the daemon shows a warning bubble (once per daemon run) while they are set. The equivalent rules are `{"process": "^claude$", "id": "..."}` and `{"process": "^codex$", "id": "..."}`.
 

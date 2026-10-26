@@ -411,6 +411,7 @@ class ProcessRule:
     pattern: re.Pattern
     pet_id: str = ""
     animation_durations: dict = field(default_factory=dict)
+    enabled: bool = True
 
     def matches(self, names) -> bool:
         return any(self.pattern.search(n) for n in names)
@@ -445,10 +446,15 @@ def load_process_rules(cfg: dict | None = None, on_error=None) -> list[ProcessRu
             report(f"process_rules[{i}]: bad regex {process!r}: {e}")
             continue
         pet_id = entry.get("id")
+        enabled = entry.get("enabled", True)
+        if not isinstance(enabled, bool):
+            report(f"process_rules[{i}]: 'enabled' must be a boolean")
+            continue
         rules.append(ProcessRule(
             process=process,
             pattern=pattern,
             pet_id=pet_id.strip() if isinstance(pet_id, str) else "",
+            enabled=enabled,
             animation_durations=valid_duration_overrides(
                 entry.get("animation_durations")
             ),
@@ -488,7 +494,7 @@ def legacy_pet_id_keys_in_use(cfg: dict | None = None) -> list[str]:
 # counterpart: it inspects the raw file content and reports everything the
 # loaders would silently ignore or only warn about.
 
-PROCESS_RULE_KEYS = ("process", "id", "animation_durations")
+PROCESS_RULE_KEYS = ("process", "id", "animation_durations", "enabled")
 
 
 def _is_number(value) -> bool:
@@ -534,6 +540,8 @@ def _verify_process_rules(rules) -> list[str]:
                 problems.append(f"{where}.process: bad regex {process!r}: {e}")
         if "id" in entry and not isinstance(entry["id"], str):
             problems.append(f"{where}.id: must be a string")
+        if "enabled" in entry and not isinstance(entry["enabled"], bool):
+            problems.append(f"{where}.enabled: must be a boolean")
         if "animation_durations" in entry:
             problems += _verify_duration_map(
                 entry["animation_durations"], f"{where}.animation_durations"

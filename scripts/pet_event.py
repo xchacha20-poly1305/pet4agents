@@ -466,11 +466,13 @@ class AgentInfo(NamedTuple):
     """Who fired a hook. `pid` is the process to poll for liveness (0 = none
     reliable). A custom `process_rules` match sets `rule` (that rule's
     `process` regex) and leaves `agent_type` empty; built-in detection sets
-    `agent_type` ("claude"|"codex") and leaves `rule` empty."""
+    `agent_type` ("claude"|"codex") and leaves `rule` empty. `enabled` is
+    false when the matching rule excludes this session from the pet."""
 
     pid: int
     agent_type: str
     rule: str = ""
+    enabled: bool = True
 
 
 def _ancestor_pids() -> list[int]:
@@ -504,7 +506,7 @@ def find_agent_info() -> AgentInfo:
         for rule in config.load_process_rules():
             for pid in ancestors:
                 if rule.matches(names[pid]):
-                    return AgentInfo(pid, "", rule.process)
+                    return AgentInfo(pid, "", rule.process, rule.enabled)
         for pid in ancestors:
             name = _builtin_agent_name(names[pid])
             if name:
@@ -625,6 +627,8 @@ def cmd_event(event_name: str) -> None:
         return
 
     agent = find_agent_info()
+    if not agent.enabled:
+        return
     payload = {
         "kind": "event",
         "event": event_name,

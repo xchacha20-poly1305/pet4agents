@@ -185,29 +185,29 @@ class TestFindAgentInfo:
         fake_proc(11, comm="bash", ppid=10)
         fake_proc(12, comm="sh", ppid=11)
         monkeypatch.setattr(pet_event.os, "getppid", lambda: 12)
-        assert pet_event.find_agent_info() == (10, "claude", "")
+        assert pet_event.find_agent_info() == pet_event.AgentInfo(10, "claude", "")
 
     def test_direct_parent_is_the_agent(self, fake_proc, monkeypatch):
         fake_proc(20, comm="codex", ppid=1)
         monkeypatch.setattr(pet_event.os, "getppid", lambda: 20)
-        assert pet_event.find_agent_info() == (20, "codex", "")
+        assert pet_event.find_agent_info() == pet_event.AgentInfo(20, "codex", "")
 
     def test_no_agent_found_returns_zero_pid(self, fake_proc, monkeypatch):
         fake_proc(30, comm="bash", ppid=1)
         monkeypatch.setattr(pet_event.os, "getppid", lambda: 30)
-        assert pet_event.find_agent_info() == (0, "", "")
+        assert pet_event.find_agent_info() == pet_event.AgentInfo(0, "", "")
 
     def test_no_agent_found_still_infers_type_from_env(self, fake_proc, monkeypatch):
         fake_proc(30, comm="bash", ppid=1)
         monkeypatch.setattr(pet_event.os, "getppid", lambda: 30)
         monkeypatch.setenv("PET4AGENTS_AGENT", "codex")
-        assert pet_event.find_agent_info() == (0, "codex", "")
+        assert pet_event.find_agent_info() == pet_event.AgentInfo(0, "codex", "")
 
     def test_ppid_cycle_terminates(self, fake_proc, monkeypatch):
         fake_proc(40, comm="bash", ppid=41)
         fake_proc(41, comm="bash", ppid=40)
         monkeypatch.setattr(pet_event.os, "getppid", lambda: 40)
-        assert pet_event.find_agent_info() == (0, "", "")
+        assert pet_event.find_agent_info() == pet_event.AgentInfo(0, "", "")
 
     def test_depth_is_capped(self, fake_proc, monkeypatch):
         """A 200-deep chain with the agent past the cap must not be found."""
@@ -215,20 +215,20 @@ class TestFindAgentInfo:
             fake_proc(pid, comm="bash", ppid=pid + 1)
         fake_proc(250, comm="claude", ppid=1)
         monkeypatch.setattr(pet_event.os, "getppid", lambda: 50)
-        assert pet_event.find_agent_info() == (0, "", "")
+        assert pet_event.find_agent_info() == pet_event.AgentInfo(0, "", "")
 
     def test_shared_codex_app_server_yields_no_liveness_pid(self, fake_proc, monkeypatch):
         """Hooks under the Codex daemon must not track the daemon's PID."""
         fake_proc(70, comm="codex", argv=["/opt/codex", "app-server", "--listen", "unix://"], ppid=1)
         fake_proc(71, comm="sh", ppid=70)
         monkeypatch.setattr(pet_event.os, "getppid", lambda: 71)
-        assert pet_event.find_agent_info() == (0, "codex", "")
+        assert pet_event.find_agent_info() == pet_event.AgentInfo(0, "codex", "")
 
     def test_stdio_codex_app_server_is_tracked(self, fake_proc, monkeypatch):
         fake_proc(80, comm="codex", argv=["/opt/codex", "app-server"], ppid=1)
         fake_proc(81, comm="sh", ppid=80)
         monkeypatch.setattr(pet_event.os, "getppid", lambda: 81)
-        assert pet_event.find_agent_info() == (80, "codex", "")
+        assert pet_event.find_agent_info() == pet_event.AgentInfo(80, "codex", "")
 
     def test_find_agent_pid_is_the_first_element(self, fake_proc, monkeypatch):
         fake_proc(60, comm="claude", ppid=1)
@@ -248,38 +248,51 @@ class TestProcessRules:
     def rules(self, *rules):
         write_user_config(self.paths, {"process_rules": list(rules)})
 
+    @pytest.mark.parametrize("host,expected_enabled", [("ChatGPT", False), ("terminal", True)])
+    def test_chatgpt_exclusion_preserves_terminal_codex(self, fake_proc, monkeypatch,
+                                                       host, expected_enabled):
+        fake_proc(10, comm=host, ppid=1)
+        fake_proc(11, comm="codex", ppid=10)
+        fake_proc(12, comm="sh", ppid=11)
+        monkeypatch.setattr(pet_event.os, "getppid", lambda: 12)
+        self.rules({"process": "^ChatGPT$", "enabled": False},
+                   {"process": "^codex$", "id": "terminal-pet"})
+        info = pet_event.find_agent_info()
+        assert info.enabled is expected_enabled
+        assert info.rule == ("^codex$" if expected_enabled else "^ChatGPT$")
+
     def test_custom_rule_matches_comm(self, fake_proc, monkeypatch):
         fake_proc(10, comm="my-agent", ppid=1)
         fake_proc(11, comm="bash", ppid=10)
         monkeypatch.setattr(pet_event.os, "getppid", lambda: 11)
         self.rules({"process": "^my-"})
-        assert pet_event.find_agent_info() == (10, "", "^my-")
+        assert pet_event.find_agent_info() == pet_event.AgentInfo(10, "", "^my-")
 
     def test_custom_rule_matches_argv0_basename(self, fake_proc, monkeypatch):
         fake_proc(10, comm="node", argv=["/opt/bin/aider", "--yes"], ppid=1)
         monkeypatch.setattr(pet_event.os, "getppid", lambda: 10)
         self.rules({"process": "^aider$"})
-        assert pet_event.find_agent_info() == (10, "", "^aider$")
+        assert pet_event.find_agent_info() == pet_event.AgentInfo(10, "", "^aider$")
 
     def test_custom_rule_wins_over_a_nearer_builtin_agent(self, fake_proc, monkeypatch):
         fake_proc(10, comm="wrapper", ppid=1)
         fake_proc(11, comm="claude", ppid=10)
         monkeypatch.setattr(pet_event.os, "getppid", lambda: 11)
         self.rules({"process": "wrapper"})
-        assert pet_event.find_agent_info() == (10, "", "wrapper")
+        assert pet_event.find_agent_info() == pet_event.AgentInfo(10, "", "wrapper")
 
     def test_builtin_is_used_when_no_rule_matches(self, fake_proc, monkeypatch):
         fake_proc(10, comm="claude", ppid=1)
         monkeypatch.setattr(pet_event.os, "getppid", lambda: 10)
         self.rules({"process": "^nothing$"})
-        assert pet_event.find_agent_info() == (10, "claude", "")
+        assert pet_event.find_agent_info() == pet_event.AgentInfo(10, "claude", "")
 
     def test_rules_are_tried_in_order(self, fake_proc, monkeypatch):
         fake_proc(10, comm="alpha", ppid=1)
         fake_proc(11, comm="beta", ppid=10)
         monkeypatch.setattr(pet_event.os, "getppid", lambda: 11)
         self.rules({"process": "alpha"}, {"process": "beta"})
-        assert pet_event.find_agent_info() == (10, "", "alpha")
+        assert pet_event.find_agent_info() == pet_event.AgentInfo(10, "", "alpha")
 
     def test_nearest_ancestor_wins_within_a_rule(self, fake_proc, monkeypatch):
         fake_proc(10, comm="agent", ppid=1)
@@ -292,13 +305,13 @@ class TestProcessRules:
         fake_proc(10, comm="Agent", ppid=1)
         monkeypatch.setattr(pet_event.os, "getppid", lambda: 10)
         self.rules({"process": "agent"})
-        assert pet_event.find_agent_info() == (0, "", "")
+        assert pet_event.find_agent_info() == pet_event.AgentInfo(0, "", "")
 
     def test_invalid_rule_is_skipped_not_fatal(self, fake_proc, monkeypatch):
         fake_proc(10, comm="agent", ppid=1)
         monkeypatch.setattr(pet_event.os, "getppid", lambda: 10)
         self.rules({"process": "("}, {"nope": 1}, {"process": "agent"})
-        assert pet_event.find_agent_info() == (10, "", "agent")
+        assert pet_event.find_agent_info() == pet_event.AgentInfo(10, "", "agent")
 
 
 # ── IPC ───────────────────────────────────────────────────────────────────
@@ -562,6 +575,18 @@ class TestCmdEvent:
                 return True
 
         monkeypatch.setattr(sys, "stdin", _Tty())
+
+    @pytest.mark.parametrize("event", ["SessionStart", "UserPromptSubmit", "PostToolUse",
+                                       "Stop", "SessionEnd"])
+    def test_disabled_session_neither_forwards_nor_spawns(self, paths, no_stdin,
+                                                        monkeypatch, event):
+        monkeypatch.setattr(pet_event, "find_agent_info",
+                            lambda: pet_event.AgentInfo(7, "", "^ChatGPT$", False))
+        def unexpected(*args):
+            pytest.fail("disabled session must not contact or start the daemon")
+        monkeypatch.setattr(pet_event, "send_to_daemon", unexpected)
+        monkeypatch.setattr(pet_event, "spawn_daemon_event_worker", unexpected)
+        pet_event.cmd_event(event)
 
     def test_forwards_event_payload(self, fake_daemon, no_stdin, monkeypatch):
         monkeypatch.setattr(pet_event, "find_agent_info", lambda: pet_event.AgentInfo(1234, "claude"))
