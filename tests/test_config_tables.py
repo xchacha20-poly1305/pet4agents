@@ -77,12 +77,6 @@ class TestLookCells:
     def test_degrees_per_step(self):
         assert math.isclose(config.LOOK_DEGREES_PER_STEP, 22.5)
 
-    def test_neutral_cell_in_bounds(self):
-        row, col = config.LOOK_NEUTRAL_CELL
-        assert 0 <= col < config.ATLAS_COLS
-        assert 0 <= row < config.ATLAS_ROWS_BY_VERSION[config.SPRITE_V1]
-
-
 # ── animation table invariants ────────────────────────────────────────────
 
 

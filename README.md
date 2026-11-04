@@ -118,9 +118,9 @@ Both Codex pet generations work, picked from `spriteVersionNumber` in `pet.json`
 | Version | Atlas | `spriteVersionNumber` | Extras |
 | --- | --- | --- | --- |
 | v1 | `1536x1872`, 8 cols × 9 rows | absent or `1` | — |
-| v2 | `1536x2288`, 8 cols × 11 rows | `2` | neutral look cell at row 0 / col 6, plus 16 clockwise look directions in rows 9–10 |
+| v2 | `1536x2288`, 8 cols × 11 rows | `2` | 16 clockwise look directions in rows 9–10; unused cells in rows 0–8 remain transparent |
 
-The nine animation rows are identical in both, so a v2 pet animates exactly like a v1 one. On top of that, a **v2 pet turns to face your mouse pointer while it is idle**: the pointer direction is mapped to one of 16 cells (22.5° apart, index 0 = straight up, going clockwise), and the neutral cell is used when the pointer sits right on the pet. Tracking stops as soon as the pet has something to do — during a drag, a oneshot flash, or while a state animation plays, the animation wins — and beyond `look_radius` the pet goes back to its idle loop. Set `look_at_cursor: false` to turn it off.
+The nine animation rows are identical in both, so a v2 pet animates exactly like a v1 one. On top of that, a **v2 pet turns to face your mouse pointer while it is idle**: the pointer direction is mapped to one of 16 cells (22.5° apart, index 0 = straight up, going clockwise). Inside `look_deadzone`, the pet plays its normal idle loop. Tracking stops as soon as the pet has something to do — during a drag, a oneshot flash, or while a state animation plays, the animation wins — and beyond `look_radius` the pet goes back to its idle loop. Set `look_at_cursor: false` to turn it off.
 
 If a pet's declared version disagrees with its actual atlas height, the atlas wins and the mismatch is logged to `event.log`.
 
@@ -169,7 +169,7 @@ Right-clicking the pet also offers "Hide for 10 seconds / 1 minute / 5 minutes";
 | `stay_even_no_session` | `false` | When `false`, the daemon exits shortly after the last agent session ends. Set to `true` to keep the daemon running until you call `/pet-stop` or ask Codex to stop the pet. The "session ends" check covers the clean `SessionEnd` hook and, when the hook relay found a reliable Claude Code / Codex PID, crashes / `SIGKILL` / terminal close via a 5s liveness poll. If no reliable agent PID is found, the daemon skips PID reaping for that session rather than tracking a short-lived shell wrapper. Sessions hosted by the Codex app-server daemon are also not PID-reaped (see [Behavior difference](#behavior-difference)). |
 | `look_at_cursor` | `true` | v2 pets only: turn the pet toward the mouse pointer while it is idle. v1 pets have no look rows and ignore this. |
 | `look_radius` | `600` | Pointer distance in pixels (from the pet's center) beyond which the pet stops tracking and plays its normal idle loop. |
-| `look_deadzone` | `48` | Pointer distance in pixels below which the pet shows the neutral look cell instead of a direction, so it doesn't spin when the pointer rests on it. |
+| `look_deadzone` | `48` | Pointer distance in pixels below which the pet plays its normal idle loop, so it doesn't spin when the pointer rests on it. |
 | `max_log_size` | `5242880` | Maximum size in bytes each log file (`event.log`, `install.log`) may reach before automatic truncation. When exceeded, roughly the newest half is kept. Set to `0` to disable truncation (unbounded growth). Default: 5 MiB (5242880). |
 | `animation_durations` | `{}` | Per-animation per-frame duration overrides in **milliseconds**. Each value is a list, one entry per frame. Length **must** match the default frame count for that animation (the spritesheet row has a fixed number of cells); mismatched, malformed, or unknown entries are silently ignored. Animation names: `idle`, `running-right`, `running-left`, `waving`, `jumping`, `failed`, `waiting`, `running`, `review` — frame counts: see `scripts/config.py:ANIMATIONS`. JSON is the only entry point; there is no slash command for this. |
 

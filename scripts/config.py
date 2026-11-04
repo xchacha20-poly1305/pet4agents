@@ -46,11 +46,10 @@ def sprite_version_for_height(height: int) -> int | None:
 #
 # 16 cells, clockwise, index 0 = looking straight up, index 4 = right,
 # 8 = down, 12 = left (22.5 degrees per step). They fill rows 9 and 10 left to
-# right: index 0-7 in row 9, index 8-15 in row 10. `LOOK_NEUTRAL_CELL` is the
-# front-facing pose used inside the pointer deadzone.
+# right: index 0-7 in row 9, index 8-15 in row 10. Inside the pointer
+# deadzone, the normal idle loop supplies the neutral pose.
 LOOK_DIRECTIONS = 16
 LOOK_FIRST_ROW = 9
-LOOK_NEUTRAL_CELL = (0, 6)  # (row, col)
 LOOK_DEGREES_PER_STEP = 360.0 / LOOK_DIRECTIONS
 
 

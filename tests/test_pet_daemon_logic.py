@@ -7,6 +7,7 @@ attributes those methods touch.
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -15,6 +16,43 @@ from tests.conftest import import_pet_daemon, make_pet, write_user_config
 
 pet_daemon = import_pet_daemon()
 S = pet_daemon.Session
+
+
+class TestLookDeadzone:
+    @pytest.mark.parametrize("dx,dy", [(0, 0), (10, 0), (0, -10), (20, 20), (47, 0)])
+    def test_entering_deadzone_restores_idle(self, monkeypatch, dx, dy):
+        win = self.window(monkeypatch, dx, dy)
+        win.look_cell = config.look_cell(4)
+        pet_daemon.PetWindow._update_look(win)
+        assert win.look_cell is None
+        assert win.rendered == [None]
+
+    @pytest.mark.parametrize("dx,dy,index", [(48, 0, 4), (0, -100, 0), (0, 100, 8), (-100, 0, 12), (600, 0, 4)])
+    def test_outside_deadzone_tracks_direction(self, monkeypatch, dx, dy, index):
+        win = self.window(monkeypatch, dx, dy)
+        pet_daemon.PetWindow._update_look(win)
+        assert win.look_cell == config.look_cell(index)
+
+    def test_beyond_radius_restores_idle(self, monkeypatch):
+        win = self.window(monkeypatch, 601, 0)
+        win.look_cell = config.look_cell(4)
+        pet_daemon.PetWindow._update_look(win)
+        assert win.look_cell is None
+        assert win.rendered == [None]
+
+    @staticmethod
+    def window(monkeypatch, dx, dy):
+        center = SimpleNamespace(x=lambda: 100, y=lambda: 100)
+        cursor = SimpleNamespace(x=lambda: 100 + dx, y=lambda: 100 + dy)
+        monkeypatch.setattr(pet_daemon, "QCursor", SimpleNamespace(pos=lambda: cursor))
+        win = SimpleNamespace(
+            _look_enabled=True, _look_ready=lambda: True,
+            _x11_pointer=SimpleNamespace(is_tracked=lambda: True),
+            frameGeometry=lambda: SimpleNamespace(center=lambda: center),
+            _look_radius=600, _look_deadzone=48, look_cell=None, rendered=[],
+        )
+        win._render_current_frame = lambda: win.rendered.append(win.look_cell)
+        return win
 
 
 # ── pet directory helpers ─────────────────────────────────────────────────

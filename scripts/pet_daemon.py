@@ -847,15 +847,14 @@ class PetWindow(QWidget):
             dx = pos.x() - center.x()
             dy = pos.y() - center.y()
             dist = math.hypot(dx, dy)
-            if dist <= self._look_radius:
-                if dist < self._look_deadzone:
-                    cell = config.LOOK_NEUTRAL_CELL
-                else:
-                    # Clockwise from screen-up, matching the v2 cell order.
-                    angle = math.degrees(math.atan2(dx, -dy)) % 360.0
-                    cell = config.look_cell(
-                        round(angle / config.LOOK_DEGREES_PER_STEP)
-                    )
+            # The deadzone uses the normal idle loop. v2 adds only the
+            # direction rows; unused cells in the idle row stay transparent.
+            if self._look_deadzone <= dist <= self._look_radius:
+                # Clockwise from screen-up, matching the v2 cell order.
+                angle = math.degrees(math.atan2(dx, -dy)) % 360.0
+                cell = config.look_cell(
+                    round(angle / config.LOOK_DEGREES_PER_STEP)
+                )
         if cell != self.look_cell:
             self.look_cell = cell
             self._render_current_frame()
