@@ -662,12 +662,13 @@ class TestCmdEvent:
         pet_event.cmd_event("Stop")
         assert spawned == []
 
-    def test_session_start_spawns_daemon_worker(self, paths, no_stdin, monkeypatch):
+    @pytest.mark.parametrize("event", ["SessionStart", "PreInvocation"])
+    def test_session_start_spawns_daemon_worker(self, paths, no_stdin, monkeypatch, event):
         spawned = []
         monkeypatch.setattr(pet_event, "spawn_daemon_event_worker", lambda p: spawned.append(p))
         monkeypatch.setattr(pet_event, "find_agent_info", lambda: pet_event.AgentInfo(0, ""))
-        pet_event.cmd_event("SessionStart")
-        assert len(spawned) == 1 and spawned[0]["event"] == "SessionStart"
+        pet_event.cmd_event(event)
+        assert len(spawned) == 1 and spawned[0]["event"] == event
 
     def test_antigravity_camelcase_payload_and_stdout(
         self, fake_daemon, tmp_path, monkeypatch, request, capsys

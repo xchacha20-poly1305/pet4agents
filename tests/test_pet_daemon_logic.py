@@ -545,6 +545,12 @@ class TestSessionTracking:
         win.apply_event("UserPromptSubmit", "s1", 100, "codex")
         assert win.active_sessions == {"s1": S(100, "codex")}
 
+    def test_pre_invocation_applies_profile(self, win, paths):
+        make_pet(config.CODEX_PETS_DIR, "agy-pet")
+        write_user_config(paths, {"process_rules": [{"process": "^agy$", "id": "agy-pet"}]})
+        win.apply_event("PreInvocation", "s1", 100, "", "", "^agy$")
+        assert win.switched_to == ["agy-pet"]
+
     def test_pid_is_late_bound(self, win):
         win.apply_event("SessionStart", "s1", 0, "codex")
         win.apply_event("UserPromptSubmit", "s1", 555, "codex")

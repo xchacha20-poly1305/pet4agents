@@ -708,7 +708,7 @@ class PetWindow(QWidget):
                 f"agent={new.rule or new.agent_type or '?'} "
                 f"(active={len(self.active_sessions)})"
             )
-            if event_name == "SessionStart":
+            if event_name in {"SessionStart", "PreInvocation"}:
                 self._switch_profile(*new.profile)
         elif new.parent_pid > 0 and prev.parent_pid <= 0:
             # Late binding: we knew the session but not its PID; learn now.

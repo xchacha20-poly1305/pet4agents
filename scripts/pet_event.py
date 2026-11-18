@@ -696,8 +696,9 @@ def cmd_event(event_name: str) -> None:
 
         ok = send_to_daemon(payload)
         if not ok:
-            # Daemon not running. Spawn on SessionStart; otherwise stay silent.
-            if effective_event == "SessionStart":
+            # Daemon not running. Spawn on SessionStart (or PreInvocation when
+            # Antigravity resumes an existing conversation without SessionStart).
+            if effective_event in {"SessionStart", "PreInvocation"}:
                 spawn_daemon_event_worker(payload)
             else:
                 _log(f"daemon not running, skipping event={effective_event}")
