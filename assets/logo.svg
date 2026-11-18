@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="pet4agents logo">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#242731"/>
+      <stop offset="100%" stop-color="#171920"/>
+    </linearGradient>
+    <linearGradient id="pet" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#EA8C6C"/>
+      <stop offset="100%" stop-color="#D97757"/>
+    </linearGradient>
+    <linearGradient id="belly" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FDE8DF"/>
+      <stop offset="100%" stop-color="#F5CFC0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 1:1 rounded square badge -->
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#bg)"/>
+  <rect x="4.75" y="4.75" width="118.5" height="118.5" rx="27.25" fill="none" stroke="#FFFFFF" stroke-opacity="0.08" stroke-width="1.5"/>
+
+  <!-- Subtle terminal prompt accent in top-left -->
+  <path d="M22 25 L29 30 L22 35" fill="none" stroke="#8BD5CA" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.85"/>
+  <line x1="33" y1="35" x2="42" y2="35" stroke="#8BD5CA" stroke-width="2.5" stroke-linecap="round" opacity="0.85"/>
+
+  <!-- Soft ground shadow -->
+  <ellipse cx="64" cy="103" rx="30" ry="5.5" fill="#0D0E12" opacity="0.55"/>
+
+  <!-- Cute desktop pet silhouette -->
+  <!-- Tail -->
+  <path d="M88 92 C102 91, 107 76, 98 69 C93 65, 88 70, 91 75 C94 79, 91 84, 84 85 Z" fill="#C96444"/>
+
+  <!-- Ears -->
+  <path d="M35 52 L31 28 C30.5 25, 34 23.5, 36.5 25.5 L53 39 Z" fill="url(#pet)"/>
+  <path d="M93 52 L97 28 C97.5 25, 94 23.5, 91.5 25.5 L75 39 Z" fill="url(#pet)"/>
+  <!-- Inner ears -->
+  <path d="M37.5 47 L35 32 L48 41 Z" fill="#F5CFC0" opacity="0.85"/>
+  <path d="M90.5 47 L93 32 L80 41 Z" fill="#F5CFC0" opacity="0.85"/>
+
+  <!-- Body -->
+  <path d="M39 76 C36 93, 45 101, 64 101 C83 101, 92 93, 89 76 Z" fill="url(#pet)"/>
+  <!-- Belly patch -->
+  <ellipse cx="64" cy="89" rx="14" ry="10" fill="url(#belly)"/>
+
+  <!-- Head -->
+  <rect x="32" y="37" width="64" height="47" rx="23" fill="url(#pet)"/>
+
+  <!-- Cheeks -->
+  <ellipse cx="42" cy="66" rx="5.5" ry="3.2" fill="#F7A896" opacity="0.75"/>
+  <ellipse cx="86" cy="66" rx="5.5" ry="3.2" fill="#F7A896" opacity="0.75"/>
+
+  <!-- Eyes -->
+  <circle cx="49" cy="58" r="4.8" fill="#1B1D24"/>
+  <circle cx="79" cy="58" r="4.8" fill="#1B1D24"/>
+  <circle cx="50.6" cy="56.3" r="1.7" fill="#FFFFFF"/>
+  <circle cx="80.6" cy="56.3" r="1.7" fill="#FFFFFF"/>
+
+  <!-- Nose & smile -->
+  <path d="M61.5 63.5 Q64 61.5 66.5 63.5 Q64 66.5 61.5 63.5 Z" fill="#1B1D24"/>
+  <path d="M59 68 Q61.5 71 64 68 Q66.5 71 69 68" fill="none" stroke="#1B1D24" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Little paws -->
+  <ellipse cx="50" cy="99" rx="7" ry="4.5" fill="#F5CFC0"/>
+  <ellipse cx="78" cy="99" rx="7" ry="4.5" fill="#F5CFC0"/>
+
+  <!-- Sparkle in top-right -->
+  <path d="M101 22 L103 27 L108 29 L103 31 L101 36 L99 31 L94 29 L99 27 Z" fill="#F5C97B"/>
+</svg>

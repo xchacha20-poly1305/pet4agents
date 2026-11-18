@@ -1,6 +1,6 @@
-# pet4agents
+# <img src="./assets/logo.svg" width="32" height="32" align="absmiddle" alt="pet4agents logo"> pet4agents
 
-A Linux desktop pet plugin for [Claude Code](https://claude.com/claude-code) and Codex CLI, reusing the ChatGPT pet format. The pet sits on top of your desktop, runs while the agent works, jumps when work completes, waves when permission is requested, and can be dragged around.
+A Linux desktop pet plugin for [Claude Code](https://claude.com/claude-code), Codex CLI, and Antigravity, reusing the ChatGPT pet format. The pet sits on top of your desktop, runs while the agent works, jumps when work completes, waves when permission is requested, and can be dragged around.
 
 ## Why this plugin
 
@@ -85,12 +85,28 @@ Codex hook support is narrower than Claude Code's hook support.
   - launch Codex with `codex --no-daemon`.
 - Hook config schema differs too: Claude's `hooks/hooks.json` may include a top-level `description`, but Codex's `hooks/codex-hooks.json` must contain only the top-level `hooks` key.
 
+### Antigravity
+
+Install from the GitHub repository with the Antigravity CLI:
+
+```shell
+agy plugin install https://github.com/xchacha20-poly1305/pet4agents
+```
+
+You can also copy or symlink the plugin directory into `~/.gemini/config/plugins/pet4agents` (global) or `.agents/plugins/pet4agents` (workspace) for Antigravity App / IDE.
+
+#### Behavior difference
+
+- Antigravity fires `SessionStart`, `PreInvocation`, `PostToolUse`, and `Stop` (it does not have `UserPromptSubmit`, `PermissionRequest`, or `SessionEnd`).
+- Because there is no `SessionEnd` hook, the daemon relies on parent PID liveness reaping (`agy` / `antigravity` / `antigravity-ide`) to exit after your Antigravity session closes.
+- Failed `PostToolUse` and `Stop` events (`error` / `terminationReason: "error"`) are mapped to `PostToolUseFailure` and `StopFailure` so the pet shows the `failed` animation.
+
 ## Behavior
 
 | Agent event            | Pet animation                |
 | ---------------------- | ---------------------------- |
 | `SessionStart`         | wave once, except after compaction (`source` is `compact`) |
-| `UserPromptSubmit`     | running                      |
+| `UserPromptSubmit` / `PreInvocation` | running        |
 | `PermissionRequest`    | waiting (needs your approval) |
 | `Elicitation`          | waiting (MCP server needs input) |
 | `Notification`         | waiting (Claude Code idle prompt; permission-prompt notifications are ignored) |

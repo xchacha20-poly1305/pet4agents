@@ -1,9 +1,9 @@
 ---
-name: codex-pet
+name: pet4agents
 description: Control the pet4agents desktop pet from Codex. Use when the user asks to stop, hide or show the pet, switch the active pet, verify the config, or inspect pet configuration/logs.
 ---
 
-# Codex Pet
+# pet4agents
 
 pet4agents is installed as a Codex plugin in this repository. Its hooks launch
 `scripts/pet_event.py`, which relays events to the long-running PySide6 daemon.

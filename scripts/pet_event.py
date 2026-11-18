@@ -361,7 +361,11 @@ def send_to_daemon(payload: dict, timeout: float = 1.0) -> bool:
 # stdio app-server is owned by the single client that spawned it (IDE, desktop
 # app), so its PID remains a valid liveness signal.
 
-AGENT_PROCESS_NAMES = {"claude", "codex"}
+AGENT_PROCESS_NAMES = {"claude", "codex", "antigravity"}
+_BUILTIN_PROCESS_ALIASES = {
+    "agy": "antigravity",
+    "antigravity-ide": "antigravity",
+}
 
 
 def _read_argv(pid: int) -> list[str]:
@@ -394,10 +398,11 @@ def _process_names(pid: int) -> list[str]:
 
 
 def _builtin_agent_name(names: list[str]) -> str:
-    """Return "claude"|"codex" if one of `names` is a supported agent binary."""
+    """Return "claude"|"codex"|"antigravity" if one of `names` is a supported agent binary."""
     for name in names:
         # Strip a trailing .exe defensively for unusual wrapper builds.
         name = name.lower().removesuffix(".exe")
+        name = _BUILTIN_PROCESS_ALIASES.get(name, name)
         if name in AGENT_PROCESS_NAMES:
             return name
     return ""
@@ -607,55 +612,97 @@ def cmd_daemon_spawn_event(encoded_payload: str) -> None:
     _log("daemon did not come up in time after background spawn")
 
 
+def _is_antigravity_hook() -> bool:
+    return os.environ.get("PET4AGENTS_AGENT", "").strip().lower() == "antigravity"
+
+
+def _antigravity_hook_response(event_name: str) -> dict:
+    """Return the synchronous JSON response required by Antigravity hooks."""
+    if event_name == "PreToolUse":
+        return {"decision": "allow"}
+    return {}
+
+
+def _emit_antigravity_hook_response(event_name: str) -> None:
+    if _is_antigravity_hook():
+        print(json.dumps(_antigravity_hook_response(event_name)), flush=True)
+
+
+def _normalize_antigravity_event(event_name: str, hook_data: dict) -> str:
+    """Map Antigravity error fields onto existing failure events."""
+    if event_name == "PostToolUse" and hook_data.get("error"):
+        return "PostToolUseFailure"
+    if event_name == "Stop" and (
+        hook_data.get("terminationReason") == "error" or hook_data.get("error")
+    ):
+        return "StopFailure"
+    return event_name
+
+
 def cmd_event(event_name: str) -> None:
     """Forward a hook event to the daemon."""
-    raw = ""
     try:
-        if not sys.stdin.isatty():
-            raw = sys.stdin.read()
-    except Exception:
         raw = ""
-
-    hook_data = {}
-    if raw.strip():
         try:
-            hook_data = json.loads(raw)
+            if not sys.stdin.isatty():
+                raw = sys.stdin.read()
         except Exception:
-            hook_data = {"raw": raw[:200]}
+            raw = ""
 
-    if config.is_noise_event(event_name, hook_data):
-        return
+        hook_data = {}
+        if raw.strip():
+            try:
+                hook_data = json.loads(raw)
+            except Exception:
+                hook_data = {"raw": raw[:200]}
 
-    agent = find_agent_info()
-    if not agent.enabled:
-        return
-    payload = {
-        "kind": "event",
-        "event": event_name,
-        "session_id": hook_data.get("session_id", ""),
-        "cwd": hook_data.get("cwd", os.getcwd()),
-        # Daemon polls this PID for liveness so it can drain the session even
-        # if SessionEnd never fires (agent crash / SIGKILL / terminal closed).
-        # 0 when no process's lifetime matches the session's (see above).
-        "parent_pid": agent.pid,
-        # Which agent fired this event — selects the pet and animation timing.
-        # Either a built-in type or the custom `process_rules` entry that matched.
-        "agent_type": agent.agent_type,
-        "process_rule": agent.rule,
-    }
-    # SessionStart.source decides whether the greeting wave plays. Other
-    # events ignore it.
-    source = hook_data.get("source")
-    if isinstance(source, str) and source:
-        payload["source"] = source
+        if config.is_noise_event(event_name, hook_data):
+            return
 
-    ok = send_to_daemon(payload)
-    if not ok:
-        # Daemon not running. Spawn on SessionStart; otherwise stay silent.
-        if event_name == "SessionStart":
-            spawn_daemon_event_worker(payload)
-        else:
-            _log(f"daemon not running, skipping event={event_name}")
+        agent = find_agent_info()
+        if not agent.enabled:
+            return
+
+        effective_event = (
+            _normalize_antigravity_event(event_name, hook_data)
+            if agent.agent_type == "antigravity"
+            else event_name
+        )
+        workspace_paths = hook_data.get("workspacePaths")
+        default_cwd = (
+            workspace_paths[0]
+            if isinstance(workspace_paths, list) and workspace_paths
+            else os.getcwd()
+        )
+        payload = {
+            "kind": "event",
+            "event": effective_event,
+            "session_id": hook_data.get("session_id") or hook_data.get("conversationId", ""),
+            "cwd": hook_data.get("cwd") or default_cwd,
+            # Daemon polls this PID for liveness so it can drain the session even
+            # if SessionEnd never fires (agent crash / SIGKILL / terminal closed).
+            # 0 when no process's lifetime matches the session's (see above).
+            "parent_pid": agent.pid,
+            # Which agent fired this event — selects the pet and animation timing.
+            # Either a built-in type or the custom `process_rules` entry that matched.
+            "agent_type": agent.agent_type,
+            "process_rule": agent.rule,
+        }
+        # SessionStart.source decides whether the greeting wave plays. Other
+        # events ignore it.
+        source = hook_data.get("source")
+        if isinstance(source, str) and source:
+            payload["source"] = source
+
+        ok = send_to_daemon(payload)
+        if not ok:
+            # Daemon not running. Spawn on SessionStart; otherwise stay silent.
+            if effective_event == "SessionStart":
+                spawn_daemon_event_worker(payload)
+            else:
+                _log(f"daemon not running, skipping event={effective_event}")
+    finally:
+        _emit_antigravity_hook_response(event_name)
 
 
 def cmd_daemon_stop() -> None:
@@ -792,4 +839,14 @@ if __name__ == "__main__":
         raise
     except Exception as e:
         _log(f"top-level exception: {e}\n{traceback.format_exc()}")
+        if len(sys.argv) > 1 and sys.argv[1] not in {
+            "daemon-stop",
+            "set-pet",
+            "hide",
+            "show",
+            "verify",
+            "daemon-spawn-event",
+            "daemon-spawn",
+        }:
+            _emit_antigravity_hook_response(sys.argv[1])
         sys.exit(0)

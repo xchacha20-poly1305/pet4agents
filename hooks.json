@@ -1,0 +1,38 @@
+{
+  "pet4agents": {
+    "enabled": true,
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "PET4AGENTS_AGENT=antigravity ./scripts/pet_event.py SessionStart",
+        "timeout": 10
+      }
+    ],
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "PET4AGENTS_AGENT=antigravity ./scripts/pet_event.py PreInvocation",
+        "timeout": 5
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "PET4AGENTS_AGENT=antigravity ./scripts/pet_event.py PostToolUse",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "PET4AGENTS_AGENT=antigravity ./scripts/pet_event.py Stop",
+        "timeout": 5
+      }
+    ]
+  }
+}

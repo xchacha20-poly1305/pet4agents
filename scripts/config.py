@@ -103,6 +103,7 @@ STATE_REPEATS = 3
 # event -> state it switches to
 STATES: dict[str, str] = {
     "UserPromptSubmit":  "running",
+    "PreInvocation":     "running",
     "PermissionRequest": "waiting",
     # MCP server asking for input behaves like PermissionRequest.
     "Elicitation":       "waiting",
@@ -240,7 +241,11 @@ UV_LOCKFILE_PATH = PLUGIN_ROOT / "requirements-uv.lock.txt"
 
 
 def _load_plugin_manifest_version() -> str:
-    for rel in (".codex-plugin/plugin.json", ".claude-plugin/plugin.json"):
+    for rel in (
+        ".codex-plugin/plugin.json",
+        ".claude-plugin/plugin.json",
+        ".antigravity-plugin/plugin.json",
+    ):
         path = PLUGIN_ROOT / rel
         if not path.exists():
             continue

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://antigravity.google/schemas/v1/plugin.json",
+  "name": "pet4agents",
+  "displayName": "pet4agents",
+  "version": "0.8.1",
+  "description": "A Linux desktop pet for Claude Code, Codex CLI, and Antigravity sessions.",
+  "logo": "assets/logo.svg",
+  "author": {
+    "name": "anrong",
+    "email": "HystericalDragons@proton.me"
+  },
+  "homepage": "https://github.com/xchacha20-poly1305/pet4agents",
+  "repository": "https://github.com/xchacha20-poly1305/pet4agents",
+  "license": "MIT",
+  "keywords": [
+    "desktop-pet",
+    "pet",
+    "hooks",
+    "pyside6"
+  ],
+  "suggestedPrompts": [
+    "Hide the desktop pet for 30 seconds",
+    "Verify my pet4agents configuration"
+  ]
+}

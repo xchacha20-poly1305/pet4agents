@@ -149,6 +149,10 @@ class TestInferAgentTypeFromEnv:
         monkeypatch.setenv("PET4AGENTS_AGENT", "  Claude ")
         assert pet_event._infer_agent_type_from_env() == "claude"
 
+    def test_antigravity_marker(self, monkeypatch):
+        monkeypatch.setenv("PET4AGENTS_AGENT", "antigravity")
+        assert pet_event._infer_agent_type_from_env() == "antigravity"
+
     def test_unknown_marker_ignored(self, monkeypatch):
         monkeypatch.setenv("PET4AGENTS_AGENT", "gemini")
         monkeypatch.delenv("PLUGIN_ROOT", raising=False)
@@ -191,6 +195,12 @@ class TestFindAgentInfo:
         fake_proc(20, comm="codex", ppid=1)
         monkeypatch.setattr(pet_event.os, "getppid", lambda: 20)
         assert pet_event.find_agent_info() == pet_event.AgentInfo(20, "codex", "")
+
+    @pytest.mark.parametrize("comm", ["agy", "antigravity", "antigravity-ide"])
+    def test_antigravity_process_is_tracked(self, fake_proc, monkeypatch, comm):
+        fake_proc(25, comm=comm, ppid=1)
+        monkeypatch.setattr(pet_event.os, "getppid", lambda: 25)
+        assert pet_event.find_agent_info() == pet_event.AgentInfo(25, "antigravity", "")
 
     def test_no_agent_found_returns_zero_pid(self, fake_proc, monkeypatch):
         fake_proc(30, comm="bash", ppid=1)
@@ -658,6 +668,60 @@ class TestCmdEvent:
         monkeypatch.setattr(pet_event, "find_agent_info", lambda: pet_event.AgentInfo(0, ""))
         pet_event.cmd_event("SessionStart")
         assert len(spawned) == 1 and spawned[0]["event"] == "SessionStart"
+
+    def test_antigravity_camelcase_payload_and_stdout(
+        self, fake_daemon, tmp_path, monkeypatch, request, capsys
+    ):
+        payload = json.dumps({
+            "conversationId": "conv-123",
+            "workspacePaths": ["/ws/proj"],
+        })
+        stdin = tmp_path / "stdin.json"
+        stdin.write_text(payload)
+        fh = stdin.open()
+        monkeypatch.setattr(sys, "stdin", fh)
+        request.addfinalizer(fh.close)
+        monkeypatch.setenv("PET4AGENTS_AGENT", "antigravity")
+        monkeypatch.setattr(pet_event, "find_agent_info",
+                            lambda: pet_event.AgentInfo(42, "antigravity"))
+        pet_event.cmd_event("PreInvocation")
+        msg = fake_daemon.wait_for(1)[0]
+        assert msg["event"] == "PreInvocation"
+        assert msg["session_id"] == "conv-123"
+        assert msg["cwd"] == "/ws/proj"
+        assert msg["agent_type"] == "antigravity"
+        assert json.loads(capsys.readouterr().out) == {}
+
+    @pytest.mark.parametrize("event,body,expected", [
+        ("PostToolUse", {"error": "exit status 1"}, "PostToolUseFailure"),
+        ("PostToolUse", {"error": ""}, "PostToolUse"),
+        ("Stop", {"terminationReason": "error"}, "StopFailure"),
+        ("Stop", {"terminationReason": "model_stop", "error": ""}, "Stop"),
+    ])
+    def test_antigravity_error_normalization(
+        self, fake_daemon, tmp_path, monkeypatch, request, capsys, event, body, expected
+    ):
+        stdin = tmp_path / "stdin.json"
+        stdin.write_text(json.dumps({"conversationId": "c1", **body}))
+        fh = stdin.open()
+        monkeypatch.setattr(sys, "stdin", fh)
+        request.addfinalizer(fh.close)
+        monkeypatch.setenv("PET4AGENTS_AGENT", "antigravity")
+        monkeypatch.setattr(pet_event, "find_agent_info",
+                            lambda: pet_event.AgentInfo(42, "antigravity"))
+        pet_event.cmd_event(event)
+        assert fake_daemon.wait_for(1)[0]["event"] == expected
+        assert json.loads(capsys.readouterr().out) == {}
+
+    @pytest.mark.parametrize("enabled", [True, False])
+    def test_antigravity_pre_tool_use_always_allows(
+        self, fake_daemon, no_stdin, monkeypatch, capsys, enabled
+    ):
+        monkeypatch.setenv("PET4AGENTS_AGENT", "antigravity")
+        monkeypatch.setattr(pet_event, "find_agent_info",
+                            lambda: pet_event.AgentInfo(42, "antigravity", enabled=enabled))
+        pet_event.cmd_event("PreToolUse")
+        assert json.loads(capsys.readouterr().out) == {"decision": "allow"}
 
 
 class TestHideShow:

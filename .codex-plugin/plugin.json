@@ -29,6 +29,8 @@
     ],
     "websiteURL": "https://github.com/xchacha20-poly1305/pet4agents",
     "brandColor": "#D97757",
+    "composerIcon": "./assets/logo.svg",
+    "logo": "./assets/logo.svg",
     "screenshots": [
       "./assets/screenshot.png"
     ]

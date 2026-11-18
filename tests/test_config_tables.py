@@ -118,6 +118,7 @@ def _registered_hooks(name):
 
 # Events only one agent has.
 CODEX_ONLY_EVENTS = {"Interrupt"}
+ANTIGRAVITY_ONLY_EVENTS = {"PreInvocation"}
 
 
 class TestEventTables:
@@ -158,8 +159,24 @@ class TestEventTables:
         registered = _registered_hooks(name)
         assert registered <= _mapped_events(), registered - _mapped_events()
 
+    def test_every_antigravity_hook_is_mapped(self):
+        data = json.loads((config.PLUGIN_ROOT / "hooks.json").read_text("utf-8"))
+        registered = {
+            key
+            for group in data.values()
+            if isinstance(group, dict)
+            for key in group
+            if key != "enabled"
+        }
+        assert registered <= _mapped_events(), registered - _mapped_events()
+
     def test_claude_hooks_cover_every_mapped_event(self):
-        missing = _mapped_events() - CODEX_ONLY_EVENTS - _registered_hooks("hooks.json")
+        missing = (
+            _mapped_events()
+            - CODEX_ONLY_EVENTS
+            - ANTIGRAVITY_ONLY_EVENTS
+            - _registered_hooks("hooks.json")
+        )
         assert not missing, missing
 
     def test_codex_only_events_are_registered_for_codex(self):
